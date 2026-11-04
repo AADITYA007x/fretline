@@ -56,15 +56,24 @@ export async function fakeRelease(page: Page, tag: string): Promise<void> {
  * test sets with window.__mic.set(freq) (0 = silence). `deny` simulates the
  * user refusing the mic permission.
  */
-export async function fakeMic(page: Page, opts: { deny?: boolean } = {}): Promise<void> {
-  await page.addInitScript((deny) => {
+export async function fakeMic(page: Page, opts: { deny?: boolean; buds?: boolean } = {}): Promise<void> {
+  await page.addInitScript(({ deny, buds }) => {
     let ctx: AudioContext | null = null;
     let oscs: OscillatorNode[] = [];
     let gain: GainNode | null = null;
     let noise: AudioBufferSourceNode | null = null;
-    const w = window as unknown as { __mic: { set(freq: number): void; calls: number } };
+    const w = window as unknown as { __mic: { set(freq: number): void; calls: number; asked: string[] } };
+    // With buds, the phone lists their mic first and gives it by default.
+    const devices = buds
+      ? [
+          { kind: "audioinput", deviceId: "default", label: "Default", groupId: "" },
+          { kind: "audioinput", deviceId: "bt", label: "Bluetooth headset", groupId: "" },
+          { kind: "audioinput", deviceId: "phone", label: "Speakerphone", groupId: "" },
+        ]
+      : [{ kind: "audioinput", deviceId: "phone", label: "Speakerphone", groupId: "" }];
     w.__mic = {
       calls: 0,
+      asked: [],
       set(freq: number) {
         if (!ctx || !gain) return;
         // Like a new pluck: a short silence, then the note.
@@ -76,9 +85,22 @@ export async function fakeMic(page: Page, opts: { deny?: boolean } = {}): Promis
       },
     };
     Object.defineProperty(navigator, "mediaDevices", { value: {}, configurable: true });
-    (navigator.mediaDevices as MediaDevices).getUserMedia = async () => {
+    (navigator.mediaDevices as MediaDevices).enumerateDevices = async () => devices as MediaDeviceInfo[];
+    (navigator.mediaDevices as MediaDevices).getUserMedia = async (c?: MediaStreamConstraints) => {
       w.__mic.calls++;
       if (deny) throw new DOMException("Permission denied", "NotAllowedError");
+      const want = ((c?.audio as MediaTrackConstraints)?.deviceId as { exact?: string })?.exact;
+      w.__mic.asked.push(want ?? "");
+      const id = want ?? (buds ? "bt" : "phone");
+      const dev = devices.find((d) => d.deviceId === id)!;
+      const silent = id === "bt"; // the buds' mic can't hear the guitar
+      const stream = await makeStream(silent);
+      const track = stream.getAudioTracks()[0];
+      Object.defineProperty(track, "label", { value: dev.label });
+      track.getSettings = () => ({ deviceId: id });
+      return stream;
+    };
+    const makeStream = async (silent: boolean) => {
       ctx = new AudioContext();
       const dest = ctx.createMediaStreamDestination();
       gain = ctx.createGain();
@@ -100,10 +122,10 @@ export async function fakeMic(page: Page, opts: { deny?: boolean } = {}): Promis
       noise.loop = true;
       noise.connect(dest);
       noise.start();
-      gain.connect(dest);
+      if (!silent) gain.connect(dest);
       return dest.stream;
     };
-  }, opts.deny ?? false);
+  }, { deny: opts.deny ?? false, buds: opts.buds ?? false });
 }
 
 export async function shot(page: Page, name: string, project: string): Promise<void> {

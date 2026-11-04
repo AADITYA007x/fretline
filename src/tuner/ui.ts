@@ -159,7 +159,50 @@ function showIdle(): void {
   renderStringStates();
 }
 
+let lastHeard = 0;
+let listenStarted = 0;
+
+function renderMic(): void {
+  const mic = engine.currentMic();
+  $("mic-row").hidden = !mic || mode === "tone";
+  if (!mic) {
+    $("mic-quiet").hidden = true;
+    return;
+  }
+  const b = $("mic-btn");
+  b.textContent = `Mic: ${mic.label}`;
+  b.toggleAttribute("disabled", mic.others.length === 0);
+}
+
+function onLevel(level: number): void {
+  // Log scale: room noise ≈ a sliver, a plucked string ≈ most of the bar.
+  const pct = level <= 0 ? 0 : Math.max(0, Math.min(100, ((Math.log10(level) + 3.3) / 2.8) * 100));
+  $("level-fill").style.width = `${pct.toFixed(0)}%`;
+  const now = performance.now();
+  if (level > 0.004) lastHeard = now;
+  const quiet = engine.isListening() && now - Math.max(lastHeard, listenStarted) > 5000;
+  $("mic-quiet").hidden = !quiet || mode === "tone";
+}
+
+async function switchMic(): Promise<void> {
+  const mic = engine.currentMic();
+  if (!mic || !mic.others.length) return;
+  const next = mic.others[0];
+  engine.stopListening();
+  try {
+    await engine.startListening(next.id);
+    listenStarted = performance.now();
+    bus.emit("toast", `Now using: ${engine.currentMic()?.label ?? next.label}`);
+  } catch (err) {
+    $("mic-error").textContent = micMessage(err);
+    $("mic-error").hidden = false;
+  }
+  renderListenBtn();
+  showIdle();
+}
+
 function renderListenBtn(): void {
+  renderMic();
   const b = $("listen-btn");
   const on = engine.isListening();
   b.textContent = on ? "Stop listening" : "Start listening";
@@ -293,6 +336,7 @@ async function startListening(): Promise<void> {
     const range = listenRange(tuning);
     engine.setRange(range.minFreq, range.maxFreq);
     await engine.startListening();
+    listenStarted = performance.now();
     storage.set(MIC_OK, true);
     void requestWakeLock();
   } catch (err) {
@@ -450,6 +494,8 @@ function saveEditor(): void {
 export function initTuner(): void {
   drawGauge();
   engine.onReading(onReading);
+  engine.onLevel(onLevel);
+  $("mic-btn").addEventListener("click", () => void switchMic());
   renderAll();
 
   $("tuning-btn").addEventListener("click", openTuningSheet);

@@ -102,6 +102,14 @@
           </label>
           <p id="mode-hint" class="mode-hint"></p>
 
+          <div id="mic-row" class="mic-row" hidden>
+            <span class="level" aria-hidden="true"><i id="level-fill"></i></span>
+            <button id="mic-btn" class="mic-btn" type="button" aria-label="Change mic"></button>
+          </div>
+          <p id="mic-quiet" class="mic-quiet" hidden>
+            Not hearing anything. If earbuds are connected, tap the mic name to switch to the phone's mic, or turn
+            Bluetooth off.
+          </p>
           <button id="listen-btn" class="btn-primary listen-btn">Start listening</button>
           <p id="mic-error" class="form-error" hidden></p>
         </section>

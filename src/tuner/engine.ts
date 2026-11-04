@@ -67,18 +67,81 @@ export function resetSmoothing(): void {
   smoother.reset();
 }
 
-export async function startListening(): Promise<void> {
+const AUDIO = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
+const MIC_KEY = "fretline:mic-device";
+
+/** Earbuds / headsets: their mic can't hear a guitar lying on the bed. */
+export function isHeadsetMic(label: string): boolean {
+  return /blue ?tooth|headset|\bbt\b|buds|airpods|hands-?free|sco/i.test(label);
+}
+
+/** The mic in use and the others available (labels come from the phone). */
+export interface MicInfo {
+  label: string;
+  id: string;
+  others: { label: string; id: string }[];
+}
+
+let micInfo: MicInfo | null = null;
+
+export function currentMic(): MicInfo | null {
+  return micInfo;
+}
+
+async function open(deviceId?: string): Promise<MediaStream> {
+  return navigator.mediaDevices.getUserMedia({ audio: deviceId ? { ...AUDIO, deviceId: { exact: deviceId } } : AUDIO });
+}
+
+/**
+ * Start the mic. Prefers the phone's own mic: with Bluetooth buds
+ * connected, Android may otherwise hand over the buds' mic. `deviceId`
+ * picks a specific mic (remembered for next time).
+ */
+export async function startListening(deviceId?: string): Promise<void> {
   if (stream) return;
   if (!navigator.mediaDevices?.getUserMedia) throw "unsupported" satisfies MicError;
   const ac = audioContext();
+  const saved = deviceId ?? localStorageGet(MIC_KEY);
   try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
-    });
+    try {
+      stream = await open(saved || undefined);
+    } catch (err) {
+      if (!saved || (err as DOMException)?.name === "NotAllowedError") throw err;
+      stream = await open(); // the saved mic is gone: use the default
+    }
   } catch (err) {
     const name = (err as DOMException)?.name ?? "";
     throw (name === "NotAllowedError" || name === "SecurityError" ? "denied" : "unavailable") satisfies MicError;
   }
+  if (deviceId) localStorageSet(MIC_KEY, deviceId);
+
+  // Labels are only readable once the mic is allowed, so check now.
+  const inputs = (await Promise.resolve(navigator.mediaDevices.enumerateDevices?.() ?? []).catch(() => [] as MediaDeviceInfo[])).filter(
+    (d) => d.kind === "audioinput" && d.deviceId,
+  );
+  let track = stream.getAudioTracks()[0];
+  if (!deviceId && !saved && track && isHeadsetMic(track.label)) {
+    const phoneMic = inputs.find((d) => !isHeadsetMic(d.label) && d.deviceId !== "default" && d.deviceId !== "communications");
+    if (phoneMic) {
+      try {
+        const better = await open(phoneMic.deviceId);
+        stream.getTracks().forEach((t) => t.stop());
+        stream = better;
+        track = stream.getAudioTracks()[0];
+      } catch {
+        // keep the one we have
+      }
+    }
+  }
+  const usedId = track?.getSettings?.().deviceId ?? "";
+  micInfo = {
+    label: track?.label || "Phone mic",
+    id: usedId,
+    others: inputs
+      .filter((d) => d.deviceId !== usedId && d.deviceId !== "default" && d.deviceId !== "communications")
+      .map((d, i) => ({ label: d.label || `Mic ${i + 1}`, id: d.deviceId })),
+  };
+
   if (ac.state !== "running") await ac.resume().catch(() => {});
   source = ac.createMediaStreamSource(stream);
   analyser = ac.createAnalyser();
@@ -89,6 +152,29 @@ export async function startListening(): Promise<void> {
   timer = setInterval(tick, EVERY_MS);
 }
 
+function localStorageGet(key: string): string {
+  try {
+    return localStorage.getItem(key) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function localStorageSet(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // not remembered
+  }
+}
+
+let levelListener: (level: number) => void = () => {};
+
+/** Input loudness 0..1 on every check, for the level bar. */
+export function onLevel(fn: (level: number) => void): void {
+  levelListener = fn;
+}
+
 export function stopListening(): void {
   if (timer) clearInterval(timer);
   timer = null;
@@ -97,7 +183,9 @@ export function stopListening(): void {
   analyser = null;
   stream?.getTracks().forEach((t) => t.stop());
   stream = null;
+  micInfo = null;
   smoother.reset();
+  levelListener(0);
 }
 
 function tick(): void {
@@ -106,6 +194,7 @@ function tick(): void {
   // Loudness of just the last ~40 ms: the long analysis frame would blur a
   // new pluck or a mute.
   const level = rms(frame.subarray(frame.length - 2048));
+  levelListener(level);
   const now = performance.now();
   if (now < mutedUntil || level < SILENCE) {
     lastLevel = level;

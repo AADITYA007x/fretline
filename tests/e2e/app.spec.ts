@@ -183,6 +183,25 @@ test.describe("tuner", () => {
   });
 });
 
+test("buds connected: uses the phone's mic, and the mic can be switched", async ({ page }, info) => {
+  await signedIn(page);
+  await fakeMic(page, { buds: true });
+  await page.goto("/");
+  await page.click("#listen-btn");
+  await expect(page.locator("#mic-btn")).toHaveText("Mic: Speakerphone");
+  await page.evaluate((f) => (window as any).__mic.set(f), 110);
+  await expect(page.locator("#cents")).toHaveText("In tune");
+  expect(Number((await page.locator("#level-fill").evaluate((e) => (e as HTMLElement).style.width)).replace("%", ""))).toBeGreaterThan(30);
+  await shot(page, "12-mic-row", info.project.name);
+
+  // Switching to the buds' mic: nothing heard → the hint shows.
+  await page.click("#mic-btn");
+  await expect(page.locator("#mic-btn")).toHaveText("Mic: Bluetooth headset");
+  await expect(page.locator("#mic-quiet")).toBeVisible({ timeout: 8000 });
+  await page.click("#mic-btn");
+  await expect(page.locator("#mic-btn")).toHaveText(/Mic: (Speakerphone|Default)/);
+});
+
 test("mic refused: says how to fix it", async ({ page }) => {
   await signedIn(page);
   await fakeMic(page, { deny: true });

@@ -638,6 +638,50 @@ html.entry .app {
   color: var(--bone-dim);
 }
 
+.mic-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 2px 10px;
+}
+
+.level {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bone-faint);
+  overflow: hidden;
+}
+
+.level i {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width 0.08s linear;
+}
+
+.mic-btn {
+  max-width: 55%;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--bone-faint);
+  border-radius: 10px;
+  background: none;
+  color: var(--bone-dim);
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mic-quiet {
+  margin: 0 2px 10px;
+  font-size: 14px;
+  color: var(--off);
+}
+
 .listen-btn {
   margin-bottom: 8px;
 }
