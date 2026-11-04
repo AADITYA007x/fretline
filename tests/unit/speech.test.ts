@@ -64,3 +64,44 @@ describe("notes from what the teacher says", () => {
     expect(notes[0].said).toContain("fourth string second fret");
   });
 });
+
+describe("plucking the chord he just showed, by string number", () => {
+  // From the Fingerstyle Club "Demons" lesson, 3:54–4:36.
+  const lesson = [
+    "the first chord we take like this middle finger fourth string second fret and ring fifth string third fret and here we",
+    "play five then four and then again five",
+    "let's play it again five five three five four five then we",
+    "take off middle finger and we play open fourth string",
+    "after that we play two times fifth string",
+  ].join(" ");
+
+  it("uses the frets of the shape for each string", () => {
+    const got = brief(lesson).map(([s, f]) => `${s}:${f}`);
+    expect(got).toEqual([
+      "4:2", "5:3", // the chord
+      "5:3", "4:2", "5:3", // five then four … five
+      "5:3", "5:3", "3:0", "5:3", "4:2", "5:3", // five five three five four five
+      "4:0", // open fourth string
+      "5:3", "5:3", // two times fifth string
+    ]);
+  });
+
+  it("a new chord forgets the old shape", () => {
+    expect(brief("fifth string third fret play five now the next chord we play five").map(([s, f]) => `${s}:${f}`)).toEqual([
+      "5:3",
+      "5:3",
+      "5:0",
+    ]);
+  });
+
+  it("'together' only joins notes said just before it", () => {
+    const w = [...say("fourth string second fret fifth string third fret"), { t: 30, w: "and" }, { t: 30.3, w: "together" }];
+    expect(notesFromSpeech(w).every((n) => n.chord === undefined)).toBe(true);
+  });
+
+  it("still ignores numbers in ordinary talk", () => {
+    expect(brief("practice this five minutes a day for two weeks")).toEqual([]);
+    expect(brief("in part two we learn the chorus")).toEqual([]);
+    expect(brief("there are six strings on the guitar")).toEqual([]);
+  });
+});

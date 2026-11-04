@@ -24,6 +24,8 @@ export interface SpokenNote {
   chord?: number;
   /** The words this came from, for the tip under the tab. */
   said: string;
+  /** Only the string was said; the fret comes from the chord he's holding. */
+  fromShape?: boolean;
 }
 
 const NUMBERS: Record<string, number> = {
@@ -187,6 +189,35 @@ function techAt(toks: Tok[], i: number): { tech: Technique; len: number } | null
   return null;
 }
 
+const CARDINAL = new Set(["one", "two", "three", "four", "five", "six", "1", "2", "3", "4", "5", "6"]);
+const LEAD_IN = new Set(["play", "plays", "playing", "then", "again", "and", "pluck", "plucking", "strings", "string", "we"]);
+const NOT_A_STRING_AFTER = new Set([
+  "fret", "string", "times", "time", "minutes", "minute", "seconds", "second", "more", "of", "percent", "years", "bars",
+  "bar", "beats", "beat", "finger", "fingers", "notes", "note", "chords", "chord", "o'clock", "days", "people", "videos",
+]);
+
+/**
+ * A plain string number in a plucking sequence: "play five", "then four",
+ * "five three five". Needs a lead-in word or a neighbouring string number,
+ * so ordinary talk ("five minutes", "two of them") isn't read as notes.
+ */
+function isBareString(toks: Tok[], i: number): boolean {
+  const w = toks[i].w;
+  if (!CARDINAL.has(w)) return false;
+  const next = toks[i + 1]?.w;
+  if (next && NOT_A_STRING_AFTER.has(next)) return false;
+  const prev = toks[i - 1]?.w;
+  if (prev === "fret" || prev === "the" || prev === "number" || prev === "part" || prev === "step") return false;
+  const isNum = (k: number) => !!toks[k] && CARDINAL.has(toks[k].w) && !NOT_A_STRING_AFTER.has(toks[k + 1]?.w ?? "");
+  const near = (k: number) => Math.abs((toks[k]?.t ?? 1e9) - toks[i].t) < 2.5;
+  if (prev && LEAD_IN.has(prev)) return true;
+  if (isNum(i - 1) && near(i - 1)) return true;
+  // "then four and then": a number between connecting words
+  if (isNum(i + 1) && near(i + 1)) return true;
+  if ((prev === "then" || prev === "again") ) return true;
+  return false;
+}
+
 /** All the notes he names, in order. */
 export function notesFromSpeech(words: Word[]): SpokenNote[] {
   const toks = normalize(words);
@@ -195,7 +226,10 @@ export function notesFromSpeech(words: Word[]): SpokenNote[] {
   let chordId = 0;
   const said = (from: number, to: number) => toks.slice(Math.max(0, from), to).map((x) => x.w).join(" ");
 
+  const shape = new Map<number, number>(); // string → fret of the chord he's holding
+  let seen = 0;
   for (let i = 0; i < toks.length; i++) {
+    for (; seen < notes.length; seen++) if (!notes[seen].fromShape) shape.set(notes[seen].string, notes[seen].fret);
     // Technique moving to a new fret on the same string:
     // "hammer on (to) (the) fourth fret", "slide up to seventh fret"
     const tech = techAt(toks, i);
@@ -284,8 +318,34 @@ export function notesFromSpeech(words: Word[]): SpokenNote[] {
       }
     }
 
+    // A new chord is being shown: forget the old shape.
+    if (toks[i].w === "chord") shape.clear();
+
+    // "two times fifth string": that string, twice (fret from the shape).
+    const reps = num(toks[i].w);
+    if (reps !== null && reps >= 2 && reps <= 8 && (toks[i + 1]?.w === "times" || toks[i + 1]?.w === "time")) {
+      const j = skipFiller(toks, i + 2, 2);
+      const stR = stringAt(toks, j);
+      if (stR) {
+        for (let r = 0; r < reps; r++)
+          notes.push({ t: toks[i].t + r * 0.01, string: stR.string, fret: shape.get(stR.string) ?? 0, fromShape: true, said: said(i - 2, j + stR.len) });
+        i = j + stR.len - 1;
+        lastEnd = i + 1;
+        continue;
+      }
+    }
+
+    // Plucking the shape he just showed, by string number:
+    // "we play five then four and then again five", "five five three five four".
+    if (isBareString(toks, i)) {
+      const n = num(toks[i].w)!;
+      notes.push({ t: toks[i].t, string: n, fret: shape.get(n) ?? 0, fromShape: true, said: said(i - 3, i + 4) });
+      lastEnd = i + 1;
+      continue;
+    }
+
     // "...together" / "both together": the last notes (said within ~4 s) sound at once.
-    if (toks[i].w === "together" && notes.length >= 2) {
+    if (toks[i].w === "together" && notes.length >= 2 && toks[i].t - notes[notes.length - 1].t < 4) {
       const last = notes[notes.length - 1];
       const group = notes.filter((n) => last.t - n.t < 4 && n.chord === undefined);
       if (group.length >= 2) {
