@@ -45,12 +45,14 @@ export async function stopScan(videoId: string): Promise<void> {
 }
 
 /**
- * How much to enlarge the tab before reading it: small digits (thin
- * staff spacing) need more, to about 30 px a line, but not past ~4000 px wide.
+ * How to read the tab: normal-size digits as one picture enlarged 2× (what
+ * reads well); small digits enlarged to about 30 px a line and read in
+ * pieces about 1600 px wide, so the reader doesn't shrink them again.
  */
-export function ocrScale(spacingPx: number, width: number): number {
-  const want = Math.min(4, Math.max(2, 30 / Math.max(1, spacingPx)));
-  return Math.max(1, Math.min(want, 4000 / Math.max(1, width)));
+export function ocrPlan(spacingPx: number, width: number): { scale: number; tiles: number } {
+  const want = Math.min(4, 30 / Math.max(1, spacingPx));
+  if (want <= 2) return { scale: 2, tiles: 1 };
+  return { scale: want, tiles: Math.min(8, Math.ceil((width * want) / 1600)) };
 }
 
 /** Pages with the same picture are read once. */
@@ -59,9 +61,9 @@ function similar(a: Uint8Array, b: Uint8Array): boolean {
 }
 
 /** Bump when the reader gets better, so lessons read before can be read again. */
-export const SCAN_VERSION = 2;
+export const SCAN_VERSION = 3;
 
-export async function scanLesson(videoId: string, onStep: (s: Step) => void, maxHeight = 1080): Promise<ScanResult> {
+export async function scanLesson(videoId: string, onStep: (s: Step) => void, maxHeight = 720): Promise<ScanResult> {
   if (running) throw new Error("Already reading another lesson's video.");
   running = videoId;
   const subs: { remove(): Promise<void> }[] = [];
@@ -135,7 +137,7 @@ export async function scanLesson(videoId: string, onStep: (s: Step) => void, max
     for (let i = 0; i < unique.length; i += 8) {
       const batch = unique.slice(i, i + 8);
       onStep({ phase: "read", fraction: i / unique.length, detail: `${i} of ${unique.length} tab pages` });
-      const { results } = await tabScan.ocr({ videoId, rect, lines, times: batch.map((p) => p.readAt), scale: ocrScale(staff.spacing * scale, rect.w) });
+      const { results } = await tabScan.ocr({ videoId, rect, lines, times: batch.map((p) => p.readAt), ...ocrPlan(staff.spacing * scale, rect.w) });
       for (const r of results) read.push({ chars: r.chars, image: r.image });
     }
 

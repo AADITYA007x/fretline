@@ -282,7 +282,7 @@ test.describe("reading tab from the video", () => {
     await expect.poll(() => page.evaluate(() => (window as any).__scanCalls.length), { timeout: 12_000 }).toBeGreaterThan(0);
   });
 
-  test("a lesson read by the older reader can be read again, at 1080p on Wi-Fi", async ({ page }) => {
+  test("a lesson read by the older reader can be read again, at 720p", async ({ page }) => {
     await fakeSupabase(page);
     await fakeTabScan(page, gray, ocr);
     await page.addInitScript(() => {
@@ -298,7 +298,7 @@ test.describe("reading tab from the video", () => {
     await page.click("#scan-btn");
     await expect(page.locator("#toast")).toContainText(/Read \d+ notes/, { timeout: 15_000 });
     await expect(page.locator("#scan-btn")).toBeHidden();
-    expect(await page.evaluate(() => (window as any).__scanHeight)).toBe(1080);
+    expect(await page.evaluate(() => (window as any).__scanHeight)).toBe(720);
   });
 
   test("a video without on-screen tab says so", async ({ page }) => {
@@ -314,8 +314,6 @@ test.describe("reading tab from the video", () => {
     await expect(page.locator(".strip-empty")).toContainText("No tab shown on screen in this video.");
     const calls: string[] = await page.evaluate(() => (window as any).__scanCalls);
     expect(calls).toContain("deleteVideo");
-    // Looked at the 1080p video, then the 720p one, before giving up.
-    expect(calls.filter((c) => c === "download").length).toBe(2);
-    expect(await page.evaluate(() => (window as any).__scanHeight)).toBe(720);
+    expect(calls.filter((c) => c === "download").length).toBe(1);
   });
 });

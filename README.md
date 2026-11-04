@@ -16,9 +16,10 @@ After that, the app shows a banner when a new version is out.
 
 **v0.4 – Tab read from the video**
 
+- v0.4.3: back to 720p (1080p made ML Kit read far fewer digits); small digits are read in enlarged overlapping pieces instead
 - v0.4.2: download pieces retried (fresh link if needed) after a dropped connection; if the 1080p video shows no tab, the 720p one is tried before giving up; frames shrunk in halving steps so thin tab lines survive
 - v0.4.1: the strip follows the video page by page; a line played twice (same tab shown again) gets its own timing instead of freezing; 1080p on Wi-Fi (720p on mobile data) and bigger enlargement for small digits; lessons read before can be **Read again**
-- **Read video tab** downloads the lesson's picture (no sound, 1080p on Wi-Fi, 720p on mobile data) into the app's private cache, finds the tab staff, follows the playback cursor through the whole video, reads each tab page once with ML Kit (on the phone, offline), then deletes the video
+- **Read video tab** downloads the lesson's picture (no sound, up to 720p) into the app's private cache, finds the tab staff, follows the playback cursor through the whole video, reads each tab page once with ML Kit (on the phone, offline), then deletes the video
 - Notes are timed by when the cursor reaches them; where the video shows tab, the strip uses it instead of his words; **Picture** shows the original tab page
 - On mobile data it asks first (with the size) or waits for Wi-Fi
 - Tested on Aaditya's screen recordings (Love Story: clean tab with a blue cursor; Believer: busy tab with chord boxes and a pale cyan cursor); `scripts/scan-video.ts` replays a video file through the whole reader, with Tesseract standing in for ML Kit

@@ -37,7 +37,7 @@ export function renderScanButton(): void {
   $("scan-row").hidden = !busy || scanning() !== id;
 }
 
-async function run(videoId: string, maxHeight = 1080): Promise<void> {
+async function run(videoId: string, maxHeight = 720): Promise<void> {
   showStep({ phase: "download", fraction: 0 });
   renderScanButton();
   $("scan-row").hidden = false;
@@ -89,7 +89,6 @@ export function initScanUi(currentLesson: () => string | null, done: (videoId: s
   $("scan-go").addEventListener("click", () => {
     closeSheet();
     const id = lessonId();
-    // On mobile data, the smaller 720p picture.
     if (id) void run(id, 720);
   });
   $("scan-wait").addEventListener("click", () => {

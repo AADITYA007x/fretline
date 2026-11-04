@@ -593,6 +593,7 @@ public class TabScanPlugin extends Plugin {
         JSArray times = call.getArray("times");
         JSArray linesArg = call.getArray("lines");
         double scale = call.getDouble("scale", 2.0);
+        int tiles = Math.max(1, Math.min(8, call.getInt("tiles", 1)));
         worker.execute(() -> {
             MediaMetadataRetriever r = new MediaMetadataRetriever();
             try {
@@ -615,26 +616,44 @@ public class TabScanPlugin extends Plugin {
                     double[] lines = new double[6];
                     for (int k = 0; k < 6 && linesArg != null && k < linesArg.length(); k++) lines[k] = linesArg.getDouble(k) - y;
                     Bitmap cleaned = linesArg != null && linesArg.length() == 6 ? cleanTab(area, lines) : area;
-                    Bitmap big = Bitmap.createScaledBitmap(cleaned, (int) (w * scale), (int) (h * scale), true);
-                    Text text = Tasks.await(recognizer.process(InputImage.fromBitmap(big, 0)));
+                    // Small digits: read the tab in a few overlapping pieces, each
+                    // enlarged, so the reader sees them big enough. A digit is kept
+                    // by the piece whose middle part it's in.
                     JSONArray chars = new JSONArray();
-                    for (Text.TextBlock block : text.getTextBlocks()) {
-                        for (Text.Line line : block.getLines()) {
-                            for (Text.Element el : line.getElements()) {
-                                for (Text.Symbol sym : el.getSymbols()) {
-                                    Rect bx = sym.getBoundingBox();
-                                    if (bx == null) continue;
-                                    JSONObject c = new JSONObject();
-                                    c.put("c", sym.getText());
-                                    c.put("x", x + bx.left / scale);
-                                    c.put("y", y + bx.top / scale);
-                                    c.put("w", bx.width() / scale);
-                                    c.put("h", bx.height() / scale);
-                                    c.put("conf", sym.getConfidence());
-                                    chars.put(c);
+                    double spacing = linesArg != null && linesArg.length() == 6 ? (lines[5] - lines[0]) / 5.0 : h / 6.0;
+                    int pieceW = (int) Math.ceil((double) w / tiles);
+                    int overlap = (int) Math.round(spacing * 2);
+                    for (int k = 0; k < tiles; k++) {
+                        int core0 = k * pieceW;
+                        int core1 = Math.min(w, core0 + pieceW);
+                        if (core0 >= w) break;
+                        int a = Math.max(0, core0 - overlap);
+                        int b = Math.min(w, core1 + overlap);
+                        Bitmap piece = tiles == 1 ? cleaned : Bitmap.createBitmap(cleaned, a, 0, b - a, h);
+                        Bitmap big = Bitmap.createScaledBitmap(piece, (int) ((b - a) * scale), (int) (h * scale), true);
+                        Text text = Tasks.await(recognizer.process(InputImage.fromBitmap(big, 0)));
+                        for (Text.TextBlock block : text.getTextBlocks()) {
+                            for (Text.Line line : block.getLines()) {
+                                for (Text.Element el : line.getElements()) {
+                                    for (Text.Symbol sym : el.getSymbols()) {
+                                        Rect bx = sym.getBoundingBox();
+                                        if (bx == null) continue;
+                                        double cx = a + bx.exactCenterX() / scale;
+                                        if (tiles > 1 && (cx < core0 || cx >= core1)) continue;
+                                        JSONObject c = new JSONObject();
+                                        c.put("c", sym.getText());
+                                        c.put("x", x + a + bx.left / scale);
+                                        c.put("y", y + bx.top / scale);
+                                        c.put("w", bx.width() / scale);
+                                        c.put("h", bx.height() / scale);
+                                        c.put("conf", sym.getConfidence());
+                                        chars.put(c);
+                                    }
                                 }
                             }
                         }
+                        if (big != piece) big.recycle();
+                        if (piece != cleaned) piece.recycle();
                     }
                     File img = new File(imageDir(videoId), Math.round(t * 1000) + ".jpg");
                     try (OutputStream os = new FileOutputStream(img)) {
@@ -645,7 +664,6 @@ public class TabScanPlugin extends Plugin {
                     res.put("chars", chars);
                     res.put("image", img.getAbsolutePath());
                     results.put(res);
-                    if (big != cleaned) big.recycle();
                     if (cleaned != area) cleaned.recycle();
                     area.recycle();
                     frame.recycle();
