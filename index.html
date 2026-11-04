@@ -83,6 +83,15 @@
           <div class="video-frame"><div id="lesson-video" class="lesson-video"></div></div>
           <p id="video-error" class="form-error video-error" hidden></p>
 
+          <div id="tab-strip" class="tab-strip">
+            <div class="strip-head">
+              <span id="strip-label" class="strip-label"></span>
+              <button id="strip-add" class="row-action" type="button">+ Note</button>
+            </div>
+            <div id="strip-staff" class="strip-staff" role="group" aria-label="Tab"></div>
+            <p id="strip-tip" class="strip-tip"></p>
+          </div>
+
           <div id="saying" class="saying" aria-live="off"><span id="saying-text" class="muted">Loading his words…</span></div>
 
           <div class="seek-row">
@@ -99,7 +108,14 @@
               <svg viewBox="0 0 24 24" aria-hidden="true"><path class="i-play" d="M8 5v14l11-7z" /><path class="i-pause" d="M7 5h4v14H7zM13 5h4v14h-4z" /></svg>
             </button>
             <button id="lesson-fwd5" class="ctl" aria-label="Forward 5 seconds">+5s</button>
-            <button id="lesson-speed" class="ctl speed" aria-label="Speed">1×</button>
+            <label class="ctl speed">
+              <select id="lesson-speed" aria-label="Speed">
+                <option value="0.5">0.5×</option>
+                <option value="0.75">0.75×</option>
+                <option value="1" selected>1×</option>
+                <option value="1.25">1.25×</option>
+              </select>
+            </label>
           </div>
 
           <div class="seg lesson-tabs" role="tablist">
@@ -189,6 +205,7 @@
       </div>
       <h3 class="sheet-sub">Colours</h3>
       <div id="theme-swatches" class="swatches"></div>
+      <p id="sync-line" class="muted sync-line"></p>
       <button id="sign-out-btn" class="btn-secondary">Sign out</button>
       <p id="app-version" class="muted version"></p>
     </section>
@@ -236,6 +253,29 @@
         <button id="a4-up" class="step-btn" aria-label="Higher">+</button>
       </div>
       <button id="a4-reset" class="btn-ghost">Back to 440 Hz</button>
+    </section>
+
+    <section id="note-sheet" class="sheet tall" role="dialog" aria-label="Fix a note" hidden>
+      <div class="sheet-grip"></div>
+      <h2 id="note-title" class="sheet-title">Fix this note</h2>
+      <p id="note-said" class="muted note-said"></p>
+      <h3 class="sheet-sub">String</h3>
+      <div id="note-strings" class="chips strings-pick"></div>
+      <h3 class="sheet-sub">Fret</h3>
+      <div class="stepper">
+        <button id="note-fret-down" class="step-btn" aria-label="Lower fret">−</button>
+        <output id="note-fret" class="step-value">0</output>
+        <button id="note-fret-up" class="step-btn" aria-label="Higher fret">+</button>
+      </div>
+      <h3 class="sheet-sub">Finger (fretting hand)</h3>
+      <div id="note-fingers" class="chips"></div>
+      <h3 class="sheet-sub">How it's played</h3>
+      <div id="note-techs" class="chips"></div>
+      <div class="sheet-actions">
+        <button id="note-delete" class="btn-danger">Delete</button>
+        <button id="note-jump" class="btn-secondary">Play from here</button>
+        <button id="note-save" class="btn-primary">Save</button>
+      </div>
     </section>
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>

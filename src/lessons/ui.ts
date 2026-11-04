@@ -19,8 +19,10 @@ import {
   type Lesson,
 } from "./store";
 import { LessonPlayer, STATE } from "./yt-player";
+import { notesFromSpeech } from "../tabs/speech";
+import { fromSpoken } from "../tabs/tab";
+import { clearTab, initStrip, reloadFixes, render as renderStrip, setTab, type StripControls } from "../tabs/strip";
 
-const SPEEDS = [1, 0.75, 0.5];
 
 let current: Lesson | null = null;
 let player: LessonPlayer | null = null;
@@ -34,6 +36,24 @@ let lastSaved = 0;
 let userScrolledAt = 0;
 let raf = 0;
 let wakeLock: { release(): Promise<void> } | null = null;
+
+const stripControls: StripControls = {
+  time: () => player?.time() ?? 0,
+  isPlaying: () => playing,
+  play: () => player?.play(),
+  pause: () => player?.pause(),
+  seek: (sec) => player?.seek(sec),
+  saidAt: (sec) => {
+    const i = lineAt(lines, sec);
+    return i >= 0 ? lines[i].text : "";
+  },
+};
+
+/** Notes from his words (or none yet) into the tab strip. */
+function updateTab(): void {
+  if (!current) return;
+  setTab(current.videoId, fromSpoken(notesFromSpeech(lines.flatMap((l) => l.words))), stripControls);
+}
 
 export function formatTime(sec: number): string {
   const s = Math.max(0, Math.floor(sec));
@@ -113,6 +133,7 @@ async function openLesson(videoId: string): Promise<void> {
   lines = [];
   shownLine = shownWord = -2;
   renderTranscript();
+  updateTab();
   $("video-error").hidden = true;
 
   if (!player) {
@@ -198,6 +219,7 @@ async function loadCaptions(): Promise<void> {
   lines = got;
   shownLine = shownWord = -2;
   renderTranscript();
+  updateTab();
   if (!lines.length) setSaying("YouTube sent empty captions for this video.");
   else setSaying("");
 }
@@ -338,6 +360,7 @@ function tick(): void {
     renderTicks();
   }
   renderSaying(t);
+  renderStrip(t);
   highlightChapter(t);
   if (playing && Date.now() - lastSaved > 5000) savePosition(t);
 }
@@ -398,7 +421,7 @@ function togglePlay(): void {
 }
 
 function renderSpeed(): void {
-  $("lesson-speed").textContent = `${speed}×`;
+  $<HTMLSelectElement>("lesson-speed").value = String(speed);
 }
 
 function pausePlayer(): void {
@@ -419,6 +442,7 @@ function closeLesson(fromCode = true): void {
   stopLoop();
   current = null;
   lines = [];
+  clearTab();
   setScreen(false);
   if (fromCode) removeStep("lesson");
   renderList();
@@ -426,6 +450,14 @@ function closeLesson(fromCode = true): void {
 
 export function initLessons(): void {
   renderList();
+  initStrip();
+  bus.on("remotechange", ({ kind, id }) => {
+    if (kind === "fixes" && id) reloadFixes(id);
+    if (kind === "lesson") {
+      if (!current) renderList();
+      else if (current.videoId === id) current = getLesson(id) ?? current;
+    }
+  });
   $<HTMLFormElement>("add-lesson-form").addEventListener("submit", (e) => {
     e.preventDefault();
     const input = $<HTMLInputElement>("lesson-link");
@@ -437,10 +469,9 @@ export function initLessons(): void {
   $("lesson-play").addEventListener("click", togglePlay);
   $("lesson-back5").addEventListener("click", () => player?.seek(player.time() - 5));
   $("lesson-fwd5").addEventListener("click", () => player?.seek(player.time() + 5));
-  $("lesson-speed").addEventListener("click", () => {
-    speed = SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length];
+  $<HTMLSelectElement>("lesson-speed").addEventListener("change", (e) => {
+    speed = Number((e.target as HTMLSelectElement).value) || 1;
     player?.setRate(speed);
-    renderSpeed();
   });
   const seek = $<HTMLInputElement>("lesson-seek");
   seek.addEventListener("input", () => {

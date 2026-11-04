@@ -17,9 +17,36 @@ export function session() {
   };
 }
 
-export async function fakeSupabase(page: Page): Promise<void> {
+/** What the fake account database holds, so tests can look inside. */
+export type FakeDb = Record<string, Record<string, unknown>[]>;
+
+export async function fakeSupabase(page: Page, opts: { tablesMissing?: boolean } = {}): Promise<FakeDb> {
+  const db: FakeDb = { fretline_lessons: [], fretline_tab_fixes: [], fretline_settings: [] };
+  const keys: Record<string, string[]> = { fretline_lessons: ["video_id"], fretline_tab_fixes: ["video_id"], fretline_settings: [] };
   await page.route(`${SUPABASE}/**`, async (route) => {
     const url = new URL(route.request().url());
+    const table = url.pathname.replace("/rest/v1/", "");
+    if (table in db) {
+      if (opts.tablesMissing)
+        return route.fulfill({ status: 404, json: { code: "PGRST205", message: `Could not find the table 'public.${table}' in the schema cache` } });
+      const req = route.request();
+      if (req.method() === "POST") {
+        const body = req.postDataJSON();
+        for (const row of Array.isArray(body) ? body : [body]) {
+          const full = { user_id: USER.id, ...row };
+          const i = db[table].findIndex((r) => keys[table].every((k) => r[k] === full[k]));
+          if (i >= 0) db[table][i] = { ...db[table][i], ...full };
+          else db[table].push(full);
+        }
+        return route.fulfill({ status: 201, body: "" });
+      }
+      const rows = db[table];
+      if ((req.headers()["accept"] ?? "").includes("vnd.pgrst.object")) {
+        if (!rows.length) return route.fulfill({ status: 406, json: { code: "PGRST116", message: "JSON object requested, multiple (or no) rows returned", details: "The result contains 0 rows" } });
+        return route.fulfill({ json: rows[0] });
+      }
+      return route.fulfill({ json: rows });
+    }
     if (url.pathname === "/auth/v1/token") {
       const body = route.request().postDataJSON() as { email?: string; password?: string };
       if (body.password === "right-password") return route.fulfill({ json: session() });
@@ -30,6 +57,7 @@ export async function fakeSupabase(page: Page): Promise<void> {
     if (url.pathname === "/rest/v1/profiles") return route.fulfill({ json: { display_name: "Aaditya" } });
     return route.fulfill({ status: 404, json: {} });
   });
+  return db;
 }
 
 export async function signedIn(page: Page): Promise<void> {

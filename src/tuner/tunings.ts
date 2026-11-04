@@ -1,5 +1,6 @@
 // Instruments, tuning presets, and the user's own tunings + song links.
 // Strings are listed low → high (thickest first), as notes like "E2".
+import { bus } from "../state";
 import { storage } from "../utils";
 import { midiToName, noteToMidi } from "./pitch";
 
@@ -59,7 +60,34 @@ const KEYS = {
   songs: "fretline:song-tunings",
   current: "fretline:current-tuning",
   a4: "fretline:a4",
+  updated: "fretline:settings-updated",
 } as const;
+
+function changed(): void {
+  storage.set(KEYS.updated, Date.now());
+  bus.emit("localchange", { kind: "settings" });
+}
+
+/** What's synced to the account: your tunings, songs and reference pitch. */
+export interface SettingsData {
+  custom: Tuning[];
+  songs: SongTuning[];
+  a4: number;
+}
+
+export function settingsData(): SettingsData & { updatedAt: number } {
+  return { custom: customTunings(), songs: songTunings(), a4: getA4(), updatedAt: storage.get<number>(KEYS.updated, 0) };
+}
+
+/** Settings from the account: take them when newer than ours. */
+export function mergeRemoteSettings(data: Partial<SettingsData>, updatedAt: number): boolean {
+  if (storage.get<number>(KEYS.updated, 0) >= updatedAt) return false;
+  if (Array.isArray(data.custom)) storage.set(KEYS.custom, data.custom.filter((t) => t && Array.isArray(t.strings)));
+  if (Array.isArray(data.songs)) storage.set(KEYS.songs, data.songs);
+  if (typeof data.a4 === "number") storage.set(KEYS.a4, data.a4);
+  storage.set(KEYS.updated, updatedAt);
+  return true;
+}
 
 export function customTunings(): Tuning[] {
   return storage.get<Tuning[]>(KEYS.custom, []).filter((t) => t && Array.isArray(t.strings));
@@ -98,6 +126,7 @@ export function saveCustomTuning(t: Omit<Tuning, "id" | "custom"> & { id?: strin
   if (i >= 0) list[i] = next;
   else list.push(next);
   storage.set(KEYS.custom, list);
+  changed();
   return id;
 }
 
@@ -112,6 +141,7 @@ export function deleteCustomTuning(id: string): void {
     songTunings().filter((s) => s.tuningId !== id),
   );
   if (storage.get<string>(KEYS.current, "") === id) setCurrentTuning("g-standard");
+  changed();
 }
 
 export function songTunings(): SongTuning[] {
@@ -126,6 +156,7 @@ export function saveSongTuning(song: string, tuningId: string): void {
   list.push({ id: newId("s"), song: name, tuningId });
   list.sort((a, b) => a.song.localeCompare(b.song));
   storage.set(KEYS.songs, list);
+  changed();
 }
 
 export function deleteSongTuning(id: string): void {
@@ -133,6 +164,7 @@ export function deleteSongTuning(id: string): void {
     KEYS.songs,
     songTunings().filter((s) => s.id !== id),
   );
+  changed();
 }
 
 export function getA4(): number {
@@ -142,6 +174,7 @@ export function getA4(): number {
 
 export function setA4(hz: number): void {
   storage.set(KEYS.a4, Math.max(415, Math.min(466, Math.round(hz))));
+  changed();
 }
 
 /** "D A D G B E" — how tunings are usually written. */

@@ -14,6 +14,14 @@ After that, the app shows a banner when a new version is out.
 
 ## What's in it
 
+**v0.3 – Live tab strip (from his words)**
+
+- Reads the notes he names in the captions ("middle finger fourth string second fret", "hammer on to the fourth fret", "open D string", "…together") into tab, with the moment he said each one
+- A strip under the video shows the phrase he's explaining, the note he's on lit up, and his words for it underneath
+- Tap a note to fix it (string, fret, finger, hammer-on/pull-off/slide/bend/harmonic) or delete it; **+ Note** adds one at the current moment; tap the strip to pause/play
+- Lessons, tab fixes and your tunings sync to your account (`supabase/001_fretline.sql`); without it everything stays on the phone
+- Speed 0.5× – 1.25×; YouTube's own caption overlay hidden
+
 **v0.2 – Lesson player**
 
 - Share a YouTube lesson to Fretline (or paste its link); it plays in YouTube's own player inside the app
@@ -30,8 +38,6 @@ After that, the app shows a banner when a new version is out.
 - Reference pitch (A4 = 415–466 Hz)
 - Pitch detection: YIN with an FFT, tested on generated plucks to within about 1 cent
 
-Tunings and songs are stored on the phone for now; they'll sync to your account when the tab library arrives.
-
 ## Develop
 
 Needs Node.js 22+.
@@ -40,15 +46,16 @@ Needs Node.js 22+.
 npm install
 npm run dev        # http://localhost:4173
 npm run build      # type-check + production build into dist/
-npm test           # unit tests (pitch detection, tunings)
+npm test           # unit tests (pitch, tunings, captions, speech → tab, real recording) + SQL/RLS tests in PGlite
 npm run e2e        # Playwright tests, phone and laptop sizes (build first)
 ```
 
 ## Accounts (Supabase)
 
 Uses Groov's Supabase project (same accounts). The URL and publishable key are in `src/cloud/client.ts`;
-row-level security in the database decides who can see what. Fretline's own tables will be prefixed
-`fretline_`, shipped as numbered files in `supabase/` to run in the SQL Editor.
+row-level security in the database decides who can see what. Fretline's own tables start with
+`fretline_` and ship as numbered files in `supabase/`, run once each in the SQL Editor. The app keeps
+working (phone-only) until they're run.
 
 ## Releases
 

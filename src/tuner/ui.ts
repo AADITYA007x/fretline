@@ -494,6 +494,9 @@ function saveEditor(): void {
 export function initTuner(): void {
   drawGauge();
   engine.onReading(onReading);
+  bus.on("remotechange", ({ kind }) => {
+    if (kind === "settings") useTuning(currentTuning());
+  });
   engine.onLevel(onLevel);
   $("mic-btn").addEventListener("click", () => void switchMic());
   renderAll();

@@ -3,6 +3,7 @@ import "@fontsource/jetbrains-mono/500.css";
 import "@fontsource/jetbrains-mono/600.css";
 import "./style.css";
 import { initSession } from "./cloud/session";
+import { initSync } from "./cloud/sync";
 import { initBack } from "./ui/back";
 import { initEntry, whenEntryOpens } from "./ui/entry";
 import { initMenu } from "./ui/menu";
@@ -25,4 +26,5 @@ initTuner();
 initLessons();
 initNav(); // after the tuner, so it hears which section opens first
 initUpdate();
+initSync();
 initSession(); // last: its first auth event fills in the account

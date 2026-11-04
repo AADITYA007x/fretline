@@ -12,6 +12,7 @@ interface YTPlayer {
   getDuration(): number;
   getPlayerState(): number;
   setPlaybackRate(rate: number): void;
+  unloadModule?(name: string): void;
   destroy(): void;
 }
 
@@ -95,7 +96,12 @@ export class LessonPlayer {
         },
         events: {
           onReady: () => resolve((this.player = p)),
-          onStateChange: (e) => this.events.onState(e.data),
+          onStateChange: (e) => {
+            // We write his words under the video; hide YouTube's own captions
+            // (they come back if the viewer turned them on in YouTube).
+            if (e.data === STATE.PLAYING) hideCaptions(p);
+            this.events.onState(e.data);
+          },
           onError: (e) => this.events.onError(describeError(e.data)),
         },
       });
@@ -145,6 +151,15 @@ export class LessonPlayer {
     this.player = null;
     this.ready = null;
     this.host.replaceChildren();
+  }
+}
+
+function hideCaptions(p: YTPlayer): void {
+  try {
+    p.unloadModule?.("captions");
+    p.unloadModule?.("cc");
+  } catch {
+    // older player builds
   }
 }
 

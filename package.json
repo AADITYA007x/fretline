@@ -1,6 +1,6 @@
 {
   "name": "fretline",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Fretline: a private guitar helper for Android — lesson player with live tabs, and a tuner.",
   "type": "module",
@@ -24,6 +24,7 @@
   "devDependencies": {
     "@capacitor/assets": "^4.0.0",
     "@capacitor/cli": "^8.6.0",
+    "@electric-sql/pglite": "^0.5.15",
     "@playwright/test": "^1.63.0",
     "typescript": "^5.9.3",
     "vite": "^7.3.7",
