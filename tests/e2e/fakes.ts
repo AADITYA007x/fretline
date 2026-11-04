@@ -247,3 +247,64 @@ export async function fakeLessonInfo(page: Page, captionsJson3: string): Promise
     };
   }, captionsJson3);
 }
+
+/**
+ * The phone's tab scanner, playing back a real frame (Love Story) for the
+ * overview, a made-up pass through the video (one tab page shown from 2 s
+ * to 12 s with the cursor moving across), and real OCR characters.
+ */
+export async function fakeTabScan(page: Page, overviewB64: string, ocr: unknown, opts: { noTab?: boolean } = {}): Promise<void> {
+  await page.addInitScript(
+    ({ gray, ocr, noTab }) => {
+      const listeners: Record<string, ((x: unknown) => void)[]> = {};
+      const emit = (ev: string, x: unknown) => (listeners[ev] ?? []).forEach((f) => f(x));
+      const b64 = (arr: Uint8Array) => btoa(String.fromCharCode(...arr));
+      const w = window as unknown as { __fretlineFakeTabScan: unknown; __scanCalls: string[] };
+      w.__scanCalls = [];
+      w.__fretlineFakeTabScan = {
+        addListener: async (ev: string, fn: (x: unknown) => void) => {
+          (listeners[ev] ??= []).push(fn);
+          return { remove: async () => (listeners[ev] = listeners[ev].filter((f) => f !== fn)) };
+        },
+        prepare: async () => ({ width: 1080, height: 607, bytes: 42e6, downloaded: false }),
+        download: async ({ videoId }: { videoId: string }) => {
+          w.__scanCalls.push("download");
+          for (let i = 1; i <= 4; i++) {
+            await new Promise((r) => setTimeout(r, 80));
+            emit("progress", { videoId, phase: "download", done: i * 10.5e6, total: 42e6 });
+          }
+        },
+        overview: async () => {
+          w.__scanCalls.push("overview");
+          const g = noTab ? btoa("Z".repeat(640 * 360)) : gray; // flat grey, no tab
+          return { width: 1080, height: 607, durationSec: 14, frames: [0, 1, 2].map((k) => ({ t: 3 + k * 3, w: 640, h: 360, gray: g })) };
+        },
+        features: async ({ videoId }: { videoId: string }) => {
+          w.__scanCalls.push("features");
+          const frames = [];
+          for (let t = 0; t < 14; t += 0.25) {
+            const tab = t >= 2 && t < 12;
+            const m = new Uint8Array(256).fill(tab ? 232 : 60);
+            if (tab) for (let k = 0; k < 20; k++) m[(k * 13) % 256] = 70;
+            const u = new Uint8Array(480).fill(128);
+            if (tab) {
+              const x = Math.round(((t - 2) / 10) * 479);
+              for (let i = -1; i <= 1; i++) u[Math.max(0, Math.min(479, x + i))] = 175;
+            }
+            frames.push({ t, y: b64(new Uint8Array(480).fill(tab ? 228 : 60)), u: b64(u), m: b64(m) });
+          }
+          for (let i = 0; i < frames.length; i += 20) emit("features", { videoId, frames: frames.slice(i, i + 20) });
+        },
+        ocr: async ({ times }: { times: number[] }) => {
+          w.__scanCalls.push("ocr");
+          return { results: times.map((t) => ({ t, chars: (ocr as { chars: unknown[] }).chars, image: "/data/fake/tab.jpg" })) };
+        },
+        cancel: async () => {},
+        deleteVideo: async () => {
+          w.__scanCalls.push("deleteVideo");
+        },
+      };
+    },
+    { gray: overviewB64, ocr, noTab: opts.noTab ?? false },
+  );
+}

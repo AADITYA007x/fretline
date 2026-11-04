@@ -5,10 +5,12 @@ import { bus } from "../state";
 import { $, escapeHtml } from "../utils";
 import { closeSheet, openSheet } from "../ui/sheets";
 import { getFixes, saveFixes } from "./fixes";
+import { pictureSrc } from "../scan/ui";
 import type { Finger, Technique } from "./speech";
 import {
   applyFixes,
   columnAt,
+  combine,
   fretLabel,
   newNoteId,
   phraseAt,
@@ -35,6 +37,8 @@ const TECHS: (Technique | null)[] = [null, "hammer", "pull", "slide", "bend", "h
 const TECH_NAME: Record<Technique, string> = { hammer: "Hammer-on", pull: "Pull-off", slide: "Slide", bend: "Bend", harmonic: "Harmonic" };
 
 let videoId: string | null = null;
+let speech: TabNote[] = [];
+/** Notes before fixes: from the screen where there's on-screen tab, his words elsewhere. */
 let base: TabNote[] = [];
 let fixes: Fixes = getFixes("");
 let phrases: Phrase[] = [];
@@ -51,7 +55,9 @@ function fmt(sec: number): string {
 }
 
 function rebuild(): void {
+  base = combine(speech, fixes.screen);
   phrases = toPhrases(applyFixes(base, fixes));
+  pictureFor = -1;
   shownPhrase = -2;
   if (controls) render(controls.time());
 }
@@ -59,7 +65,7 @@ function rebuild(): void {
 /** A lesson opened (or its captions arrived): its notes from his words. */
 export function setTab(id: string, notes: TabNote[], c: StripControls): void {
   videoId = id;
-  base = notes;
+  speech = notes;
   fixes = getFixes(id);
   controls = c;
   rebuild();
@@ -67,7 +73,9 @@ export function setTab(id: string, notes: TabNote[], c: StripControls): void {
 
 export function clearTab(): void {
   videoId = null;
+  speech = [];
   base = [];
+  showPicture(false);
   phrases = [];
   shownPhrase = -2;
   $("strip-staff").innerHTML = "";
@@ -97,7 +105,8 @@ export function render(t: number): void {
   if (!videoId) return;
   if (!phrases.length) {
     if (shownPhrase !== -1) {
-      $("strip-staff").innerHTML = `<p class="strip-empty">No notes found in his words${base.length ? "" : " yet"}. Tap <b>+ Note</b> to add one at this moment.</p>`;
+      const none = fixes.screen?.none;
+      $("strip-staff").innerHTML = `<p class="strip-empty">No notes found in his words yet.${none ? ` ${none}` : " If the video shows tab, tap <b>Read video tab</b>."} Tap <b>+ Note</b> to add one at this moment.</p>`;
       $("strip-label").textContent = "Tab";
       $("strip-tip").textContent = "";
       $("tab-strip").classList.remove("upcoming");
@@ -114,9 +123,10 @@ export function render(t: number): void {
     shownUpcoming = at.upcoming;
     shownColumn = -2;
     $("tab-strip").classList.toggle("upcoming", at.upcoming);
+    const fromScreen = p.columns.some((c) => c.notes.some((n) => n.source === "screen"));
     $("strip-label").textContent = at.upcoming
-      ? `Next notes he explains, at ${fmt(p.start)}`
-      : `Notes from what he says · ${at.index + 1} of ${phrases.length}`;
+      ? `Next notes, at ${fmt(p.start)}`
+      : `${fromScreen ? "Tab from the video" : "Notes from what he says"} · ${at.index + 1} of ${phrases.length}`;
   }
   const col = at.upcoming ? -1 : columnAt(p, t);
   if (col === shownColumn) return;
@@ -131,6 +141,41 @@ export function render(t: number): void {
   if (nowEl) host.scrollTo({ left: nowEl.offsetLeft - host.clientWidth / 2 + nowEl.clientWidth / 2 });
   const tip = col >= 0 && controls ? controls.saidAt(p.columns[col].t) : "";
   $("strip-tip").textContent = tip ? `“${tip}”` : "";
+}
+
+// --- The tab picture from the video -------------------------------------------------------
+
+let pictureOn = false;
+let pictureFor = -1;
+
+function pageAt(t: number): number {
+  const pages = fixes.screen?.pages ?? [];
+  let idx = -1;
+  pages.forEach((p, i) => {
+    if (p.start <= t + 0.05 && p.image) idx = i;
+  });
+  return idx;
+}
+
+function showPicture(on: boolean): void {
+  pictureOn = on;
+  $("strip-picture").setAttribute("aria-pressed", String(on));
+  if (!on) $("strip-img").hidden = true;
+  pictureFor = -1;
+}
+
+/** Called every frame with the video time: keep the picture on the current page. */
+export function renderPicture(t: number): void {
+  const pages = fixes.screen?.pages ?? [];
+  $("strip-picture").hidden = !pages.some((p) => p.image);
+  if (!pictureOn) return;
+  const i = pageAt(t);
+  if (i === pictureFor) return;
+  pictureFor = i;
+  const img = $<HTMLImageElement>("strip-img");
+  const path = i >= 0 ? pages[i].image : undefined;
+  img.hidden = !path;
+  if (path) img.src = pictureSrc(path);
 }
 
 // --- Editing -------------------------------------------------------------------------------
@@ -238,6 +283,8 @@ export function initStrip(): void {
     else controls.play();
   });
   $("strip-add").addEventListener("click", addAtNow);
+  $("strip-picture").addEventListener("click", () => showPicture(!pictureOn));
+  $("strip-img").addEventListener("error", () => ($("strip-img").hidden = true));
   $("note-fret-down").addEventListener("click", () => {
     if (!draft) return;
     draft.fret = Math.max(0, draft.fret - 1);

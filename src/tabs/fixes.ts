@@ -24,6 +24,11 @@ export function fixedLessons(): string[] {
   return storage.get<string[]>(INDEX, []);
 }
 
+/** Keep what was read from the video (part of the lesson's saved tab). */
+export function saveScreenTab(videoId: string, screen: import("./tab").ScreenTab): void {
+  saveFixes(videoId, { ...getFixes(videoId), screen });
+}
+
 /** Fixes from the account: take them when newer than ours. */
 export function mergeRemoteFixes(videoId: string, remote: Fixes): boolean {
   const local = getFixes(videoId);

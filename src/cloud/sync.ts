@@ -148,7 +148,7 @@ async function pull(): Promise<void> {
   }
   for (const row of (fx.data ?? []) as { video_id: string; fixes: Fixes; updated_at: string }[]) {
     if (d.fixes.includes(row.video_id) || !row.fixes || typeof row.fixes !== "object") continue;
-    const remote = { edits: row.fixes.edits ?? {}, added: row.fixes.added ?? [], updatedAt: ms(row.updated_at) };
+    const remote = { edits: row.fixes.edits ?? {}, added: row.fixes.added ?? [], screen: row.fixes.screen, updatedAt: ms(row.updated_at) };
     if (mergeRemoteFixes(row.video_id, remote)) bus.emit("remotechange", { kind: "fixes", id: row.video_id });
   }
   const s = st.data as { data: Partial<SettingsData>; updated_at: string } | null;

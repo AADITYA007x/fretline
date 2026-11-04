@@ -86,8 +86,18 @@
           <div id="tab-strip" class="tab-strip">
             <div class="strip-head">
               <span id="strip-label" class="strip-label"></span>
-              <button id="strip-add" class="row-action" type="button">+ Note</button>
+              <div class="strip-actions">
+                <button id="strip-picture" class="row-action" type="button" hidden>Picture</button>
+                <button id="scan-btn" class="row-action" type="button">Read video tab</button>
+                <button id="strip-add" class="row-action" type="button">+ Note</button>
+              </div>
             </div>
+            <div id="scan-row" class="scan-row" hidden>
+              <span id="scan-text" class="scan-text"></span>
+              <span class="scan-bar"><i id="scan-fill"></i></span>
+              <button id="scan-stop" class="row-action" type="button">Stop</button>
+            </div>
+            <img id="strip-img" class="strip-img" alt="The tab as shown in the video" hidden />
             <div id="strip-staff" class="strip-staff" role="group" aria-label="Tab"></div>
             <p id="strip-tip" class="strip-tip"></p>
           </div>
@@ -275,6 +285,16 @@
         <button id="note-delete" class="btn-danger">Delete</button>
         <button id="note-jump" class="btn-secondary">Play from here</button>
         <button id="note-save" class="btn-primary">Save</button>
+      </div>
+    </section>
+
+    <section id="scan-sheet" class="sheet" role="dialog" aria-label="Use mobile data?" hidden>
+      <div class="sheet-grip"></div>
+      <h2 class="sheet-title">You're on mobile data</h2>
+      <p id="scan-sheet-text" class="muted"></p>
+      <div class="sheet-actions">
+        <button id="scan-wait" class="btn-secondary">Wait for Wi-Fi</button>
+        <button id="scan-go" class="btn-primary">Use mobile data</button>
       </div>
     </section>
 

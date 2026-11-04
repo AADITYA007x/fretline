@@ -46,3 +46,21 @@ describe("tab", () => {
     expect(fretLabel({ fret: 3 })).toBe("3");
   });
 });
+
+import { combine } from "../../src/tabs/tab";
+
+describe("combining what he says with the tab on screen", () => {
+  it("uses the screen tab where it's shown, his words elsewhere", () => {
+    const speech = fromSpoken([
+      { t: 5, string: 4, fret: 2, said: "a" },
+      { t: 30, string: 5, fret: 3, said: "b" },
+    ]);
+    const screen = {
+      at: 1,
+      notes: [{ id: "v280-6", t: 28, string: 6, fret: 3, source: "screen" as const }],
+      pages: [{ start: 25, end: 40, notes: 1 }],
+    };
+    expect(combine(speech, screen).map((n) => `${n.source}:${n.string}:${n.fret}`)).toEqual(["speech:4:2", "screen:6:3"]);
+    expect(combine(speech, undefined)).toBe(speech);
+  });
+});

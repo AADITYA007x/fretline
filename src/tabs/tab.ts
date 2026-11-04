@@ -12,7 +12,7 @@ export interface TabNote {
   finger?: Finger;
   tech?: Technique;
   chord?: number;
-  source: "speech" | "you";
+  source: "speech" | "screen" | "you";
   said?: string;
 }
 
@@ -21,6 +21,25 @@ export interface Fixes {
   edits: Record<string, Partial<Pick<TabNote, "string" | "fret" | "finger" | "tech" | "t">> | "deleted">;
   added: TabNote[];
   updatedAt: number;
+  /** Tab read from the video itself (see src/scan). */
+  screen?: ScreenTab;
+}
+
+export interface ScreenTab {
+  at: number;
+  notes: TabNote[];
+  pages: { start: number; end: number; image?: string; notes: number }[];
+  none?: string;
+}
+
+/**
+ * The lesson's notes before fixes: what was read off the screen where there
+ * is on-screen tab, and what he says everywhere else.
+ */
+export function combine(speech: TabNote[], screen: ScreenTab | undefined): TabNote[] {
+  if (!screen?.notes.length) return speech;
+  const covered = (t: number) => screen.pages.some((p) => t >= p.start - 1 && t <= p.end + 1);
+  return [...speech.filter((n) => !covered(n.t)), ...screen.notes].sort((a, b) => a.t - b.t);
 }
 
 export const emptyFixes = (): Fixes => ({ edits: {}, added: [], updatedAt: 0 });

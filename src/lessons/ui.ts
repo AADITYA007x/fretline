@@ -21,7 +21,9 @@ import {
 import { LessonPlayer, STATE } from "./yt-player";
 import { notesFromSpeech } from "../tabs/speech";
 import { fromSpoken } from "../tabs/tab";
-import { clearTab, initStrip, reloadFixes, render as renderStrip, setTab, type StripControls } from "../tabs/strip";
+import { clearTab, initStrip, reloadFixes, render as renderStrip, renderPicture, setTab, type StripControls } from "../tabs/strip";
+import { initScanUi, renderScanButton } from "../scan/ui";
+import { tabScan } from "../scan/native";
 
 
 let current: Lesson | null = null;
@@ -86,6 +88,7 @@ function renderList(): void {
     row.querySelector(".lesson-remove")!.addEventListener("click", () => {
       if (!confirm(`Remove "${l.title}" from your lessons?`)) return;
       removeLesson(l.videoId);
+      void tabScan.deleteImages({ videoId: l.videoId }).catch(() => {});
       renderList();
     });
     host.appendChild(row);
@@ -134,6 +137,7 @@ async function openLesson(videoId: string): Promise<void> {
   shownLine = shownWord = -2;
   renderTranscript();
   updateTab();
+  renderScanButton();
   $("video-error").hidden = true;
 
   if (!player) {
@@ -361,6 +365,7 @@ function tick(): void {
   }
   renderSaying(t);
   renderStrip(t);
+  renderPicture(t);
   highlightChapter(t);
   if (playing && Date.now() - lastSaved > 5000) savePosition(t);
 }
@@ -451,8 +456,18 @@ function closeLesson(fromCode = true): void {
 export function initLessons(): void {
   renderList();
   initStrip();
+  initScanUi(
+    () => current?.videoId ?? null,
+    (id) => {
+      reloadFixes(id);
+      renderScanButton();
+    },
+  );
   bus.on("remotechange", ({ kind, id }) => {
-    if (kind === "fixes" && id) reloadFixes(id);
+    if (kind === "fixes" && id) {
+      reloadFixes(id);
+      renderScanButton();
+    }
     if (kind === "lesson") {
       if (!current) renderList();
       else if (current.videoId === id) current = getLesson(id) ?? current;

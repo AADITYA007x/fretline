@@ -346,7 +346,7 @@ public class TabScanPlugin extends Plugin {
     /**
      * Decodes the video once. `fps` times a second, measures the tab area
      * (rect, in video pixels): for each of `cols` columns the mean brightness
-     * (Y) and mean blue-yellow (Cb), plus a 32×8 grey thumbnail. Sent in
+     * (Y), mean blue-yellow (Cb) and red-cyan (Cr), plus a 64×12 grey thumbnail. Sent in
      * batches as "features" events; resolves when the video ends.
      */
     @PluginMethod
@@ -456,6 +456,10 @@ public class TabScanPlugin extends Plugin {
         notifyListeners("features", b);
     }
 
+    /** Size of the tab-area thumbnail used to spot page changes. */
+    private static final int MW = 64;
+    private static final int MH = 12;
+
     /** Column profiles of the tab area in one decoded frame. */
     private static JSObject measure(Image img, double t, int rx, int ry, int rw, int rh, int cols) {
         Image.Plane[] planes = img.getPlanes();
@@ -473,45 +477,54 @@ public class TabScanPlugin extends Plugin {
         ByteBuffer U = planes[1].getBuffer();
         int uRow = planes[1].getRowStride();
         int uPix = planes[1].getPixelStride();
+        ByteBuffer V = planes[2].getBuffer();
+        int vRow = planes[2].getRowStride();
+        int vPix = planes[2].getPixelStride();
 
         long[] ySum = new long[cols];
         long[] uSum = new long[cols];
+        long[] vSum = new long[cols];
         int[] yN = new int[cols];
         int[] uN = new int[cols];
-        long[] mini = new long[32 * 8];
-        int[] miniN = new int[32 * 8];
+        long[] mini = new long[MW * MH];
+        int[] miniN = new int[MW * MH];
         int bw = x1 - x0;
         int bh = y1 - y0;
         for (int y = y0; y < y1; y += 2) {
             int rowY = (crop.top + y) * yRow;
             int rowU = ((crop.top + y) / 2) * uRow;
-            int my = Math.min(7, (y - y0) * 8 / bh);
+            int rowV = ((crop.top + y) / 2) * vRow;
+            int my = Math.min(MH - 1, (y - y0) * MH / bh);
             for (int x = x0; x < x1; x++) {
                 int c = Math.min(cols - 1, (x - x0) * cols / bw);
                 int v = Y.get(rowY + (crop.left + x) * yPix) & 0xff;
                 ySum[c] += v;
                 yN[c]++;
-                int mx = Math.min(31, (x - x0) * 32 / bw);
-                mini[my * 32 + mx] += v;
-                miniN[my * 32 + mx]++;
+                int mx = Math.min(MW - 1, (x - x0) * MW / bw);
+                mini[my * MW + mx] += v;
+                miniN[my * MW + mx]++;
                 if ((x & 1) == 0) {
                     uSum[c] += U.get(rowU + ((crop.left + x) / 2) * uPix) & 0xff;
+                    vSum[c] += V.get(rowV + ((crop.left + x) / 2) * vPix) & 0xff;
                     uN[c]++;
                 }
             }
         }
         byte[] yb = new byte[cols];
         byte[] ub = new byte[cols];
+        byte[] vb = new byte[cols];
         for (int c = 0; c < cols; c++) {
             yb[c] = (byte) (yN[c] > 0 ? ySum[c] / yN[c] : 0);
             ub[c] = (byte) (uN[c] > 0 ? uSum[c] / uN[c] : 128);
+            vb[c] = (byte) (uN[c] > 0 ? vSum[c] / uN[c] : 128);
         }
-        byte[] mb = new byte[32 * 8];
+        byte[] mb = new byte[MW * MH];
         for (int i = 0; i < mb.length; i++) mb[i] = (byte) (miniN[i] > 0 ? mini[i] / miniN[i] : 0);
         JSObject f = new JSObject();
         f.put("t", t);
         f.put("y", Base64.encodeToString(yb, Base64.NO_WRAP));
         f.put("u", Base64.encodeToString(ub, Base64.NO_WRAP));
+        f.put("v", Base64.encodeToString(vb, Base64.NO_WRAP));
         f.put("m", Base64.encodeToString(mb, Base64.NO_WRAP));
         return f;
     }
@@ -528,6 +541,7 @@ public class TabScanPlugin extends Plugin {
         String videoId = call.getString("videoId");
         JSObject rect = call.getObject("rect");
         JSArray times = call.getArray("times");
+        JSArray linesArg = call.getArray("lines");
         double scale = call.getDouble("scale", 2.0);
         worker.execute(() -> {
             MediaMetadataRetriever r = new MediaMetadataRetriever();
@@ -548,7 +562,10 @@ public class TabScanPlugin extends Plugin {
                     int w = Math.max(1, Math.min(frame.getWidth() - x, rw));
                     int h = Math.max(1, Math.min(frame.getHeight() - y, rh));
                     Bitmap area = Bitmap.createBitmap(frame, x, y, w, h);
-                    Bitmap big = Bitmap.createScaledBitmap(area, (int) (w * scale), (int) (h * scale), true);
+                    double[] lines = new double[6];
+                    for (int k = 0; k < 6 && linesArg != null && k < linesArg.length(); k++) lines[k] = linesArg.getDouble(k) - y;
+                    Bitmap cleaned = linesArg != null && linesArg.length() == 6 ? cleanTab(area, lines) : area;
+                    Bitmap big = Bitmap.createScaledBitmap(cleaned, (int) (w * scale), (int) (h * scale), true);
                     Text text = Tasks.await(recognizer.process(InputImage.fromBitmap(big, 0)));
                     JSONArray chars = new JSONArray();
                     for (Text.TextBlock block : text.getTextBlocks()) {
@@ -578,7 +595,8 @@ public class TabScanPlugin extends Plugin {
                     res.put("chars", chars);
                     res.put("image", img.getAbsolutePath());
                     results.put(res);
-                    if (big != area) big.recycle();
+                    if (big != cleaned) big.recycle();
+                    if (cleaned != area) cleaned.recycle();
                     area.recycle();
                     frame.recycle();
                     progress(videoId, "read", i + 1, times.length());
@@ -597,6 +615,53 @@ public class TabScanPlugin extends Plugin {
                 }
             }
         });
+    }
+
+    /**
+     * Remove the staff lines and stems/bar lines (long thin runs) so only
+     * the digits are left for the text reader. Same as src/scan/clean.ts.
+     */
+    static Bitmap cleanTab(Bitmap area, double[] lines) {
+        int w = area.getWidth();
+        int h = area.getHeight();
+        byte[] lum = luma(area);
+        int[] g = new int[w * h];
+        for (int i = 0; i < g.length; i++) g[i] = lum[i] & 0xff;
+        int[] sorted = g.clone();
+        java.util.Arrays.sort(sorted);
+        int bg = sorted[(int) (sorted.length * 0.9)];
+        int dark = bg - 25;
+        double spacing = (lines[5] - lines[0]) / 5.0;
+        for (double ly : lines) {
+            for (int y = (int) Math.round(ly) - 2; y <= (int) Math.round(ly) + 2; y++) {
+                if (y < 0 || y >= h) continue;
+                int x = 0;
+                while (x < w) {
+                    if (g[y * w + x] >= dark) {
+                        x++;
+                        continue;
+                    }
+                    int s = x;
+                    while (x < w && g[y * w + x] < dark) x++;
+                    if (x - s > spacing * 1.5) for (int k = s; k < x; k++) g[y * w + k] = bg;
+                }
+            }
+        }
+        for (int x = 0; x < w; x++) {
+            int y = 0;
+            while (y < h) {
+                if (g[y * w + x] >= dark) {
+                    y++;
+                    continue;
+                }
+                int s = y;
+                while (y < h && g[y * w + x] < dark) y++;
+                if (y - s > spacing * 1.6) for (int k = s; k < y; k++) g[k * w + x] = bg;
+            }
+        }
+        int[] px = new int[w * h];
+        for (int i = 0; i < px.length; i++) px[i] = 0xff000000 | (g[i] << 16) | (g[i] << 8) | g[i];
+        return Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888);
     }
 
     private static String describe(Throwable e) {

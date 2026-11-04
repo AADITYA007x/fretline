@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
-import { fakeLessonInfo, fakeNative, fakeSupabase, fakeYouTube, shot, signedIn } from "./fakes";
+import { fakeLessonInfo, fakeNative, fakeSupabase, fakeTabScan, fakeYouTube, shot, signedIn } from "./fakes";
 
 const CAPTIONS = readFileSync("tests/fixtures/lesson-captions.json3", "utf8");
 const yt = (page: Page) => page.evaluate(() => ((window as any).__yt?.getCurrentTime() as number) ?? -1);
@@ -149,7 +149,7 @@ test.describe("tab strip", () => {
     await page.click('.tab[data-view="lessons"]');
     await page.fill("#lesson-link", "https://youtu.be/ZeeuvgrDUeQ");
     await page.click('#add-lesson-form button[type="submit"]');
-    await expect(page.locator("#strip-label")).toContainText("Next notes he explains, at 0:05");
+    await expect(page.locator("#strip-label")).toContainText("Next notes, at 0:05");
     await page.waitForFunction(() => (window as any).__yt);
 
     // 0:05 "third string second fret with index", 0:09 "and hammer on to the fourth fret",
@@ -226,4 +226,73 @@ test("account not set up yet: everything stays on the phone, menu says so", asyn
   await expect(page.locator("#lesson-title")).toHaveText("Neon intro, fingerstyle lesson");
   await page.click("#menu-btn");
   await expect(page.locator("#sync-line")).toContainText("one-time setup", { timeout: 10_000 });
+});
+
+test.describe("reading tab from the video", () => {
+  const gray = readFileSync("tests/fixtures/frames/love-story-2.gray640.b64", "utf8");
+  const ocr = JSON.parse(readFileSync("tests/fixtures/frames/love-story-2.ocr.json", "utf8"));
+
+  test("on Wi-Fi: reads the tab, times it by the cursor, deletes the video", async ({ page }, info) => {
+    const db = await fakeSupabase(page);
+    await fakeTabScan(page, gray, ocr);
+    await page.addInitScript(() => ((window as any).__fretlineFakeConnection = "wifi"));
+    await page.goto("/");
+    await page.click('.tab[data-view="lessons"]');
+    await page.fill("#lesson-link", "https://youtu.be/2Lq784V-KPw"); // no captions
+    await page.click('#add-lesson-form button[type="submit"]');
+    await expect(page.locator(".strip-empty")).toContainText("Read video tab");
+    await page.click("#scan-btn");
+    await expect(page.locator("#scan-row")).toBeVisible();
+    await expect(page.locator("#toast")).toContainText(/Read \d+ notes from the video's tab/, { timeout: 15_000 });
+    expect(await page.evaluate(() => (window as any).__scanCalls)).toEqual(["download", "overview", "features", "ocr", "deleteVideo"]);
+    await expect(page.locator("#scan-btn")).toBeHidden();
+
+    await page.waitForFunction(() => (window as any).__yt);
+    await page.evaluate(() => (window as any).__yt.seekTo(6));
+    await page.click("#lesson-play");
+    await expect(page.locator("#strip-label")).toContainText("Tab from the video");
+    const cols = await page.locator(".staff-col[data-col]").count();
+    expect(cols).toBeGreaterThan(15);
+    // The cursor was 40% across at 6 s: about 40% of the notes are done.
+    const done = await page.locator(".staff-col.done").count();
+    expect(done / cols).toBeGreaterThan(0.25);
+    expect(done / cols).toBeLessThan(0.55);
+    await expect(page.locator("#strip-picture")).toBeVisible();
+    await shot(page, "28-screen-tab", info.project.name);
+
+    // Saved with the lesson's tab (and to the account)
+    await expect.poll(() => ((db.fretline_tab_fixes[0]?.fixes as any)?.screen?.notes?.length ?? 0), { timeout: 10_000 }).toBeGreaterThan(15);
+  });
+
+  test("on mobile data: asks first; waiting for Wi-Fi starts it later", async ({ page }) => {
+    await fakeSupabase(page);
+    await fakeTabScan(page, gray, ocr);
+    await page.addInitScript(() => ((window as any).__fretlineFakeConnection = "cellular"));
+    await page.goto("/");
+    await page.click('.tab[data-view="lessons"]');
+    await page.fill("#lesson-link", "2Lq784V-KPw");
+    await page.click('#add-lesson-form button[type="submit"]');
+    await page.click("#scan-btn");
+    await expect(page.locator("#scan-sheet")).toBeVisible();
+    await expect(page.locator("#scan-sheet-text")).toContainText("about 42 MB");
+    await page.click("#scan-wait");
+    await expect(page.locator("#scan-sheet")).toBeHidden();
+    expect(await page.evaluate(() => (window as any).__scanCalls)).toEqual([]);
+    await page.evaluate(() => ((window as any).__fretlineFakeConnection = "wifi"));
+    await expect.poll(() => page.evaluate(() => (window as any).__scanCalls.length), { timeout: 12_000 }).toBeGreaterThan(0);
+  });
+
+  test("a video without on-screen tab says so", async ({ page }) => {
+    await fakeSupabase(page);
+    await fakeTabScan(page, gray, ocr, { noTab: true });
+    await page.addInitScript(() => ((window as any).__fretlineFakeConnection = "wifi"));
+    await page.goto("/");
+    await page.click('.tab[data-view="lessons"]');
+    await page.fill("#lesson-link", "2Lq784V-KPw");
+    await page.click('#add-lesson-form button[type="submit"]');
+    await page.click("#scan-btn");
+    await expect(page.locator("#toast")).toHaveText("No tab shown on screen in this video.", { timeout: 10_000 });
+    await expect(page.locator(".strip-empty")).toContainText("No tab shown on screen in this video.");
+    expect(await page.evaluate(() => (window as any).__scanCalls)).toContain("deleteVideo");
+  });
 });
