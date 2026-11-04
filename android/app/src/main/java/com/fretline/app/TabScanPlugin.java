@@ -318,6 +318,62 @@ public class TabScanPlugin extends Plugin {
         call.resolve();
     }
 
+    /** Keep what the reader saw (characters per moment, pages, cursor) next to the pictures. */
+    @PluginMethod
+    public void saveReport(PluginCall call) {
+        String videoId = call.getString("videoId");
+        String json = call.getString("json", "{}");
+        worker.execute(() -> {
+            try (OutputStream os = new FileOutputStream(new File(imageDir(videoId), "report.json"))) {
+                os.write(json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                call.resolve();
+            } catch (Exception e) {
+                call.reject(describe(e));
+            }
+        });
+    }
+
+    /** Share the reading details (report + tab pictures) as one zip, to send for checking. */
+    @PluginMethod
+    public void shareReport(PluginCall call) {
+        String videoId = call.getString("videoId");
+        worker.execute(() -> {
+            try {
+                File dir = imageDir(videoId);
+                File[] files = dir.listFiles();
+                if (files == null || files.length == 0) throw new IOException("Nothing read for this lesson yet");
+                File outDir = new File(getContext().getCacheDir(), "share");
+                //noinspection ResultOfMethodCallIgnored
+                outDir.mkdirs();
+                File zip = new File(outDir, "fretline-reading-" + videoId + ".zip");
+                try (java.util.zip.ZipOutputStream z = new java.util.zip.ZipOutputStream(new FileOutputStream(zip))) {
+                    byte[] buf = new byte[64 * 1024];
+                    for (File f : files) {
+                        z.putNextEntry(new java.util.zip.ZipEntry(f.getName()));
+                        try (InputStream in = new java.io.FileInputStream(f)) {
+                            int n;
+                            while ((n = in.read(buf)) != -1) z.write(buf, 0, n);
+                        }
+                        z.closeEntry();
+                    }
+                }
+                android.net.Uri uri = androidx.core.content.FileProvider.getUriForFile(
+                    getContext(), getContext().getPackageName() + ".fileprovider", zip);
+                android.content.Intent send = new android.content.Intent(android.content.Intent.ACTION_SEND);
+                send.setType("application/zip");
+                send.putExtra(android.content.Intent.EXTRA_STREAM, uri);
+                send.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                android.content.Intent chooser = android.content.Intent.createChooser(send, "Send reading details");
+                chooser.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                getActivity().runOnUiThread(() -> getContext().startActivity(chooser));
+                call.resolve();
+            } catch (Exception e) {
+                Log.w(TAG, "shareReport", e);
+                call.reject(describe(e));
+            }
+        });
+    }
+
     private void progress(String videoId, String phase, long done, long total) {
         JSObject p = new JSObject();
         p.put("videoId", videoId);

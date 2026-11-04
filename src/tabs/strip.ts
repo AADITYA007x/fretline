@@ -5,7 +5,7 @@ import { bus } from "../state";
 import { $, escapeHtml } from "../utils";
 import { closeSheet, openSheet } from "../ui/sheets";
 import { getFixes, saveFixes } from "./fixes";
-import { pictureSrc } from "../scan/ui";
+import { pictureSrc, shareReading } from "../scan/ui";
 import type { Finger, Technique } from "./speech";
 import {
   applyFixes,
@@ -161,6 +161,7 @@ function showPicture(on: boolean): void {
   pictureOn = on;
   $("strip-picture").setAttribute("aria-pressed", String(on));
   if (!on) $("strip-img").hidden = true;
+  $("strip-share").hidden = !on;
   pictureFor = -1;
 }
 
@@ -284,6 +285,9 @@ export function initStrip(): void {
   });
   $("strip-add").addEventListener("click", addAtNow);
   $("strip-picture").addEventListener("click", () => showPicture(!pictureOn));
+  $("strip-share").addEventListener("click", () => {
+    if (videoId) void shareReading(videoId);
+  });
   $("strip-img").addEventListener("error", () => ($("strip-img").hidden = true));
   $("note-fret-down").addEventListener("click", () => {
     if (!draft) return;

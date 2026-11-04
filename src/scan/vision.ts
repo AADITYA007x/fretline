@@ -299,36 +299,45 @@ export function forwardOnly(c: { t: number; x: number }[]): { t: number; x: numb
 }
 
 /**
- * Where the playback cursor is (0..1): a narrow column whose colour stands
- * out from the columns around it (blue in some videos, pale cyan in
- * others). Wide coloured areas (a bar highlighted yellow or green) don't
- * count. Null when there's no cursor.
+ * Where the playback cursor is (0..1): a narrow column whose colour differs
+ * from the columns around it (blue in some videos, pale cyan in others),
+ * also when it runs through a bar highlighted yellow or green. Colour is
+ * compared as a whole (blue vs yellow are opposite, not "both coloured").
+ * Wide coloured areas and their edges don't count. Null when there's none.
  */
 export function cursorX(u: Uint8Array, v?: Uint8Array): number | null {
   const n = u.length;
-  const chroma = new Float32Array(n);
-  for (let i = 0; i < n; i++) chroma[i] = Math.abs(u[i] - 128) + (v ? Math.abs(v[i] - 128) : 0);
-  // How much each column stands out from its neighbourhood (median of ±10).
+  const med = (a: Uint8Array | undefined, i: number, win: number[]) => {
+    if (!a) return 128;
+    win.length = 0;
+    for (let k = Math.max(0, i - 10); k <= Math.min(n - 1, i + 10); k++) win.push(a[k]);
+    win.sort((p, q) => p - q);
+    return win[win.length >> 1];
+  };
+  const win: number[] = [];
+  const lift = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    lift[i] = Math.abs(u[i] - med(u, i, win)) + (v ? Math.abs(v[i] - med(v, i, win)) : 0);
+  }
   let best = 0;
   let at = -1;
-  const win: number[] = [];
-  for (let i = 0; i < n; i++) {
-    win.length = 0;
-    for (let k = Math.max(0, i - 10); k <= Math.min(n - 1, i + 10); k++) win.push(chroma[k]);
-    win.sort((a, b) => a - b);
-    const lift = chroma[i] - win[win.length >> 1];
-    if (lift > best) {
-      best = lift;
+  for (let i = 0; i < n; i++)
+    if (lift[i] > best) {
+      best = lift[i];
       at = i;
     }
-  }
   if (best < 6) return null;
-  // Narrow: the lift falls off within a few columns either side.
+  // Narrow: a few columns away on both sides it's back to normal.
+  const away = (d: number) => {
+    const j = at + d;
+    return j < 0 || j >= n ? 0 : lift[j];
+  };
+  if (Math.max(away(-5), away(-6), away(5), away(6)) > best / 2) return null;
+  // Its middle (a thick line spans 2–3 columns).
   let a = at;
   let b = at;
-  while (a > 0 && chroma[a - 1] - chroma[at] > -best / 2) a--;
-  while (b < n - 1 && chroma[b + 1] - chroma[at] > -best / 2) b++;
-  if (b - a + 1 > n * 0.03) return null;
+  while (a > 0 && lift[a - 1] > best / 2) a--;
+  while (b < n - 1 && lift[b + 1] > best / 2) b++;
   return (a + b) / 2 / (n - 1);
 }
 
@@ -394,6 +403,39 @@ export function charsToNotes(chars: OcrChar[], lines: number[]): ScreenNote[] {
     notes.push({ string: a.string, fret: Number(a.d), x: a.x + a.w / 2 });
   }
   return notes.sort((p, q) => p.x - q.x || p.string - q.string);
+}
+
+/**
+ * The same page read at a few moments (the cursor or a highlight can hide a
+ * digit, and the reader sometimes misses or misreads one): keep a note
+ * when most readings agree it's there, with the fret most of them saw.
+ * `tol` is how far apart (x, video pixels) the same digit can be read.
+ */
+export function mergeReadings(readings: ScreenNote[][], tol: number): ScreenNote[] {
+  const used = readings.filter((r) => r.length > 0);
+  if (used.length <= 1) return used[0] ?? [];
+  const need = Math.ceil(readings.length / 2);
+  const groups: { string: number; xs: number[]; frets: number[]; from: Set<number> }[] = [];
+  readings.forEach((r, ri) => {
+    for (const n of r) {
+      const g = groups.find((q) => q.string === n.string && !q.from.has(ri) && Math.abs(q.xs[0] - n.x) <= tol);
+      if (g) {
+        g.xs.push(n.x);
+        g.frets.push(n.fret);
+        g.from.add(ri);
+      } else groups.push({ string: n.string, xs: [n.x], frets: [n.fret], from: new Set([ri]) });
+    }
+  });
+  const out: ScreenNote[] = [];
+  for (const g of groups) {
+    if (g.from.size < need) continue;
+    const count = new Map<number, number>();
+    for (const f of g.frets) count.set(f, (count.get(f) ?? 0) + 1);
+    let fret = g.frets[0];
+    for (const [f, c] of count) if (c > (count.get(fret) ?? 0)) fret = f;
+    out.push({ string: g.string, fret, x: g.xs.reduce((a, b) => a + b, 0) / g.xs.length });
+  }
+  return out.sort((p, q) => p.x - q.x || p.string - q.string);
 }
 
 /** Notes in the same column (played together) share an x within this much. */

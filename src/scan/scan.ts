@@ -11,10 +11,12 @@ import {
   commonStaff,
   findPages,
   findStaff,
+  mergeReadings,
   staffRect,
   timeColumns,
   type FrameFeatures,
   type Page,
+  type ScreenNote,
 } from "./vision";
 
 export interface ScanPage {
@@ -61,7 +63,7 @@ function similar(a: Uint8Array, b: Uint8Array): boolean {
 }
 
 /** Bump when the reader gets better, so lessons read before can be read again. */
-export const SCAN_VERSION = 3;
+export const SCAN_VERSION = 4;
 
 export async function scanLesson(videoId: string, onStep: (s: Step) => void, maxHeight = 720): Promise<ScanResult> {
   if (running) throw new Error("Already reading another lesson's video.");
@@ -133,12 +135,37 @@ export async function scanLesson(videoId: string, onStep: (s: Step) => void, max
       unique.push(p);
       return unique.length - 1;
     });
-    const read: { chars: Parameters<typeof charsToNotes>[0]; image: string }[] = [];
-    for (let i = 0; i < unique.length; i += 8) {
-      const batch = unique.slice(i, i + 8);
+    // What the reader saw, kept for checking (Send reading details).
+    const report = {
+      version: SCAN_VERSION,
+      video: { width: ov.width, height: ov.height },
+      rect,
+      lines,
+      plan: ocrPlan(staff.spacing * scale, rect.w),
+      pages: pages.map((p, k) => ({ start: p.start, end: p.end, same: sameAs[k], cursor: p.cursor })),
+      readings: [] as { t: number; image?: string; chars: unknown[] }[],
+      merged: [] as ScreenNote[][],
+    };
+    // Each page is read at three moments and the readings compared.
+    const SPOTS = [0.3, 0.5, 0.72];
+    const tol = staff.spacing * scale * 0.6;
+    const read: { notes: ScreenNote[]; image: string }[] = [];
+    const plan = ocrPlan(staff.spacing * scale, rect.w);
+    for (let i = 0; i < unique.length; i += 4) {
+      const batch = unique.slice(i, i + 4);
       onStep({ phase: "read", fraction: i / unique.length, detail: `${i} of ${unique.length} tab pages` });
-      const { results } = await tabScan.ocr({ videoId, rect, lines, times: batch.map((p) => p.readAt), ...ocrPlan(staff.spacing * scale, rect.w) });
-      for (const r of results) read.push({ chars: r.chars, image: r.image });
+      const times = batch.flatMap((p) => SPOTS.map((f) => p.start + f * (p.end - p.start)));
+      const { results } = await tabScan.ocr({ videoId, rect, lines, times, ...plan });
+      for (const r of results) report.readings.push({ t: r.t, image: r.image?.split("/").pop(), chars: r.chars });
+      batch.forEach((_, k) => {
+        const mine = times.slice(k * 3, k * 3 + 3).map((t) => results.find((r) => Math.abs(r.t - t) < 0.001));
+        const notes = mergeReadings(
+          mine.map((r) => (r ? charsToNotes(r.chars, lines) : [])),
+          tol,
+        );
+        read.push({ notes, image: (mine[1] ?? mine.find(Boolean))?.image ?? "" });
+        report.merged.push(notes);
+      });
     }
 
     // Notes, timed by the cursor on each showing of each page.
@@ -147,7 +174,7 @@ export async function scanLesson(videoId: string, onStep: (s: Step) => void, max
     pages.forEach((p, k) => {
       const r = read[sameAs[k]];
       if (!r) return;
-      const cols = columns(charsToNotes(r.chars, lines), staff.spacing * scale);
+      const cols = columns(r.notes, staff.spacing * scale);
       const times = timeColumns(cols, p, rect);
       cols.forEach((col, ci) => {
         for (const n of col) {
@@ -161,8 +188,9 @@ export async function scanLesson(videoId: string, onStep: (s: Step) => void, max
           });
         }
       });
-      out.push({ start: p.start, end: p.end, image: r.image, notes: cols.length });
+      out.push({ start: p.start, end: p.end, image: r.image || undefined, notes: cols.length });
     });
+    await tabScan.saveReport({ videoId, json: JSON.stringify(report) }).catch(() => {});
     return { notes, pages: out };
   } finally {
     for (const s of subs) await s.remove().catch(() => {});

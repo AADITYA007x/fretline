@@ -304,6 +304,12 @@ export async function fakeTabScan(page: Page, overviewB64: string, ocr: unknown,
         deleteVideo: async () => {
           w.__scanCalls.push("deleteVideo");
         },
+        saveReport: async ({ json }: { json: string }) => {
+          (w as any).__scanReport = JSON.parse(json);
+        },
+        shareReport: async () => {
+          (w as any).__shared = true;
+        },
       };
     },
     { gray: overviewB64, ocr, noTab: opts.noTab ?? false },

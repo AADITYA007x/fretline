@@ -1561,6 +1561,11 @@ html.entry .app {
   grid-column: 2;
 }
 
+.strip-share {
+  display: block;
+  margin: 0 8px 4px auto;
+}
+
 .strip-img {
   display: block;
   width: calc(100% - 16px);

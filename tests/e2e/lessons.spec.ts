@@ -260,6 +260,13 @@ test.describe("reading tab from the video", () => {
     await expect(page.locator("#strip-picture")).toBeVisible();
     await shot(page, "28-screen-tab", info.project.name);
 
+    // Each page read at three moments; the details can be sent for checking.
+    const report = await page.evaluate(() => (window as any).__scanReport);
+    expect(report.readings.length).toBe(report.merged.length * 3);
+    await page.click("#strip-picture");
+    await page.click("#strip-share");
+    expect(await page.evaluate(() => (window as any).__shared)).toBe(true);
+
     // Saved with the lesson's tab (and to the account)
     await expect.poll(() => ((db.fretline_tab_fixes[0]?.fixes as any)?.screen?.notes?.length ?? 0), { timeout: 10_000 }).toBeGreaterThan(15);
   });

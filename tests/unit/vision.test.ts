@@ -166,3 +166,18 @@ describe("how the tab is read", () => {
     expect((1260 * p.scale) / p.tiles).toBeLessThanOrEqual(1600);
   });
 });
+
+import { mergeReadings } from "../../src/scan/vision";
+describe("reading a page at three moments", () => {
+  const n = (string: number, fret: number, x: number) => ({ string, fret, x });
+  it("keeps what most readings saw, with the fret most of them read", () => {
+    const a = [n(2, 3, 100), n(3, 2, 150), n(6, 3, 200)];
+    const b = [n(2, 3, 101), n(3, 7, 151)]; // cursor hid the low E; 2 misread as 7
+    const c = [n(2, 3, 99), n(3, 2, 149), n(6, 3, 201), n(1, 9, 300)]; // a stray
+    const m = mergeReadings([a, b, c], 6);
+    expect(m.map((x) => `${x.string}/${x.fret}`)).toEqual(["2/3", "3/2", "6/3"]);
+  });
+  it("one reading only: keeps it as it is", () => {
+    expect(mergeReadings([[], [n(2, 3, 100)], []], 6)).toEqual([n(2, 3, 100)]);
+  });
+});

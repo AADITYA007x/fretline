@@ -16,6 +16,7 @@ After that, the app shows a banner when a new version is out.
 
 **v0.4 – Tab read from the video**
 
+- v0.4.4: cursor found inside a yellow-highlighted bar too (notes were piling up at the start/end of a page); each page read at three moments and the readings compared; **Send reading details** (under Picture) shares what the reader saw, for checking accuracy
 - v0.4.3: back to 720p (1080p made ML Kit read far fewer digits); small digits are read in enlarged overlapping pieces instead
 - v0.4.2: download pieces retried (fresh link if needed) after a dropped connection; if the 1080p video shows no tab, the 720p one is tried before giving up; frames shrunk in halving steps so thin tab lines survive
 - v0.4.1: the strip follows the video page by page; a line played twice (same tab shown again) gets its own timing instead of freezing; 1080p on Wi-Fi (720p on mobile data) and bigger enlargement for small digits; lessons read before can be **Read again**

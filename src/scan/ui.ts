@@ -111,3 +111,12 @@ export function initScanUi(currentLesson: () => string | null, done: (videoId: s
 export function pictureSrc(path: string): string {
   return Capacitor.convertFileSrc(path.startsWith("file://") ? path : `file://${path}`);
 }
+
+/** Send what the reader saw for a lesson (to check its accuracy). */
+export async function shareReading(videoId: string): Promise<void> {
+  try {
+    await tabScan.shareReport({ videoId });
+  } catch (err) {
+    bus.emit("toast", `Couldn't share: ${(err as Error).message ?? err}`);
+  }
+}
