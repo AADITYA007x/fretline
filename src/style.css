@@ -1376,12 +1376,24 @@ html.entry .app {
 }
 
 .staff-col {
+  position: relative;
   flex: none;
   display: grid;
   grid-template-rows: repeat(6, 22px);
   min-width: 34px;
   padding: 0 2px;
   border-radius: 8px;
+}
+
+/* a strum arrow from the video's tab, drawn by its chord */
+.staff-col .strum {
+  position: absolute;
+  left: 1px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 13px;
+  color: var(--accent);
+  pointer-events: none;
 }
 
 /* where the next page of the video's tab begins */

@@ -12,6 +12,8 @@ export interface TabNote {
   finger?: Finger;
   tech?: Technique;
   chord?: number;
+  /** A strum arrow drawn by the chord in the video's tab (as drawn). */
+  strum?: "up" | "down";
   source: "speech" | "screen" | "you";
   said?: string;
 }
@@ -149,6 +151,7 @@ export const STRING_NAMES = ["", "e", "B", "G", "D", "A", "E"];
 export function fretLabel(n: Pick<TabNote, "fret" | "tech">): string {
   const mark = n.tech === "hammer" ? "h" : n.tech === "pull" ? "p" : n.tech === "slide" ? "/" : "";
   if (n.tech === "harmonic") return `<${n.fret}>`;
+  if (n.tech === "mute") return "x";
   if (n.tech === "bend") return `${n.fret}b`;
   return `${mark}${n.fret}`;
 }

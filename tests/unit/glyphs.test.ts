@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
-import { findTokens, layOut, notesFromArea, readTokens, type ReadChar } from "../../src/scan/glyphs";
+import { findAll, findTokens, layOut, notesFromArea, readTokens, type ReadChar } from "../../src/scan/glyphs";
 
 const W = 1116;
 const H = 134;
@@ -35,8 +35,9 @@ describe("finding the digits on the staff", () => {
     expect(lay.slots.length).toBe(tokens.length);
     // A made-up reading: one character per slot, placed in its middle.
     const chars: ReadChar[] = lay.slots.map((s, i) => ({ c: String(i % 10), x: s.x0 + 2, y: s.y0 + 4, w: s.x1 - s.x0 - 4, h: s.y1 - s.y0 - 8 }));
-    expect(readTokens(lay, chars)).toEqual(lay.slots.map((_, i) => i % 10));
-    expect(readTokens(lay, [{ ...chars[0], c: "X" }])[0]).toBeNull();
+    expect(readTokens(lay, chars).map((r) => r?.fret)).toEqual(lay.slots.map((_, i) => i % 10));
+    expect(readTokens(lay, [{ ...chars[0], c: "X" }])[0]).toEqual({ fret: 0, mute: true });
+    expect(readTokens(lay, [{ ...chars[0], c: "<" }, { ...chars[0], c: "7" }])[0]).toEqual({ fret: 7, harmonic: true });
   });
 });
 
@@ -89,6 +90,55 @@ describe("one mark, one digit", () => {
       { c: "2", x: mid + 3, y: s.y0 + 4, w: 8, h: 20 },
     ];
     expect(s.marks).toBe(1);
-    expect(readTokens(lay, chars)[0]).toBe(2);
+    expect(readTokens(lay, chars)[0]?.fret).toBe(2);
+  });
+});
+
+describe("digits touching their stems", () => {
+  it("a 0 with its stem hanging from it is still found, on its string", () => {
+    const w = 120;
+    const h = 150;
+    const g = new Uint8Array(w * h).fill(250);
+    const lines = [20, 40, 60, 80, 100, 120];
+    for (const y of lines) for (let x = 0; x < w; x++) g[y * w + x] = 190; // grey staff lines
+    // a "0" (ring 12 wide, 16 tall) on the G line, and its stem down to the bottom
+    for (let y = 52; y <= 67; y++)
+      for (let x = 44; x <= 55; x++) {
+        const dx = (x - 49.5) / 6;
+        const dy = (y - 59.5) / 8;
+        const r = dx * dx + dy * dy;
+        if (r <= 1 && r >= 0.45) g[y * w + x] = 20;
+      }
+    for (let y = 68; y < 140; y++) g[y * w + 49] = g[y * w + 50] = 20;
+    const tokens = findTokens(g, w, h, lines);
+    expect(tokens.length).toBe(1);
+    expect(tokens[0].string).toBe(3);
+    expect(tokens[0].y1).toBeLessThan(72);
+  });
+});
+
+describe("the symbols around the digits", () => {
+  const all = (name: string) => findAll(pic(name), W, H, LINES);
+  it("slide marks: \"3/5\" and \"2/4\" at the start of bar 7, \"1/5\" ×3 in bar 10", () => {
+    const slid = all("believer-bar7").tokens.filter((t) => t.tech === "slide");
+    expect(slid.filter((t) => t.x0 > 80 && t.x0 < 100).map((t) => t.string).sort()).toEqual([2, 3]);
+    expect(slid.filter((t) => t.x0 > 1000).map((t) => t.string).sort()).toEqual([1, 2, 3]);
+  });
+  it("arcs over \"3⌒1\" (bar 80): marked on the second note", () => {
+    const arcs = all("believer-bar80").tokens.filter((t) => t.tech === "hammer");
+    expect(arcs.length).toBe(3);
+    for (const t of arcs) expect(t.string).toBe(2);
+  });
+  it("a strum arrow by the chord in bar 34", () => {
+    const f = all("believer-bar31");
+    expect(f.arrows).toEqual([expect.objectContaining({ dir: "up" })]);
+    expect(f.tokens.filter((t) => t.strum === "up").map((t) => t.string).sort()).toEqual([2, 3, 4, 5]);
+  });
+  it("an arc going down the neck (3⌒1) is a pull-off", async () => {
+    const toks = all("believer-bar80").tokens;
+    const notes = await notesFromArea({ gray: pic("believer-bar80"), w: W, h: H, x: 0, y: 0 }, LINES, async (lay) =>
+      lay.slots.map((s, i) => ({ c: toks[i].tech === "hammer" ? "1" : "3", x: s.x0 + 2, y: s.y0 + 4, w: s.x1 - s.x0 - 4, h: s.y1 - s.y0 - 8 })),
+    );
+    expect(notes.filter((n) => n.tech === "pull").length).toBe(3);
   });
 });

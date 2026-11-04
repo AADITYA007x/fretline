@@ -33,8 +33,8 @@ export interface StripControls {
 
 const FINGER_MARK: Record<Finger, string> = { thumb: "T", index: "i", middle: "m", ring: "r", pinky: "p" };
 const FINGERS: (Finger | null)[] = [null, "index", "middle", "ring", "pinky", "thumb"];
-const TECHS: (Technique | null)[] = [null, "hammer", "pull", "slide", "bend", "harmonic"];
-const TECH_NAME: Record<Technique, string> = { hammer: "Hammer-on", pull: "Pull-off", slide: "Slide", bend: "Bend", harmonic: "Harmonic" };
+const TECHS: (Technique | null)[] = [null, "hammer", "pull", "slide", "bend", "harmonic", "mute"];
+const TECH_NAME: Record<Technique, string> = { hammer: "Hammer-on", pull: "Pull-off", slide: "Slide", bend: "Bend", harmonic: "Harmonic", mute: "Muted (x)" };
 
 let videoId: string | null = null;
 let speech: TabNote[] = [];
@@ -146,7 +146,9 @@ function renderPhrase(p: Phrase): void {
         })
         .join("");
       const pageStart = ci > 0 && pageLabel(c.t) !== pageLabel(p.columns[ci - 1].t);
-      return `<div class="staff-col${pageStart ? " page-start" : ""}" data-col="${ci}">${cells}</div>`;
+      const strum = c.notes.find((n) => n.strum)?.strum;
+      const arrow = strum ? `<span class="strum" aria-label="Strum ${strum}">${strum === "up" ? "↑" : "↓"}</span>` : "";
+      return `<div class="staff-col${pageStart ? " page-start" : ""}" data-col="${ci}">${arrow}${cells}</div>`;
     })
     .join("");
   host.innerHTML = `<div class="staff-col labels" aria-hidden="true">${labels}</div>${cols}`;

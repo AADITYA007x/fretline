@@ -32,7 +32,7 @@ for (const k of pick) {
     chars.push({ c: c[0], x: l, y: lay.h - t, w: rr - l, h: t - b });
   }
   const frets = readTokens(lay, chars);
-  out.push({ k, t: r.t, notes: tokens.map((tk, i) => `${tk.string}/${frets[i] ?? "?"}@${Math.round(tk.x0)}`).join(" ") });
+  out.push({ k, t: r.t, notes: tokens.map((tk, i) => `${tk.string}/${frets[i] ? (frets[i]!.mute ? "x" : frets[i]!.fret) : "?"}@${Math.round(tk.x0)}`).join(" ") });
 }
 writeFileSync(process.env.OUT ?? "/tmp/glyph-check.json", JSON.stringify(out, null, 1));
 console.log(out.map((o) => `${o.k} ${o.t.toFixed(1)}: ${o.notes}`).join("\n"));

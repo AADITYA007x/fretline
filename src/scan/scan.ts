@@ -59,7 +59,7 @@ function similar(a: Uint8Array, b: Uint8Array): boolean {
 }
 
 /** Bump when the reader gets better, so lessons read before can be read again. */
-export const SCAN_VERSION = 6;
+export const SCAN_VERSION = 7;
 
 export async function scanLesson(videoId: string, onStep: (s: Step) => void, maxHeight = 720): Promise<ScanResult> {
   if (running) throw new Error("Already reading another lesson's video.");
@@ -189,6 +189,8 @@ export async function scanLesson(videoId: string, onStep: (s: Step) => void, max
             string: n.string,
             fret: n.fret,
             chord: col.length > 1 ? 100000 + Math.round(times[ci].t * 10) : undefined,
+            ...(n.tech ? { tech: n.tech } : {}),
+            ...(n.strum ? { strum: n.strum } : {}),
             source: "screen",
           });
         }

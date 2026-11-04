@@ -18,6 +18,10 @@ export interface Token {
   string: number;
   /** Marks joined into it: 1 for "3", 2 for "12". */
   marks: number;
+  /** From the marks around it: a slide into it, a hammer-on/pull-off arc. */
+  tech?: "slide" | "hammer" | "pull";
+  /** A strum arrow drawn next to its chord (as drawn: ↑ or ↓). */
+  strum?: "up" | "down";
 }
 
 export interface Layout {
@@ -57,17 +61,19 @@ interface Blob {
   n: number;
 }
 
-function blobs(m: Uint8Array, w: number, h: number): Blob[] {
+function blobs(m: Uint8Array, w: number, h: number, label?: Int32Array): Blob[] {
   const seen = new Uint8Array(w * h);
   const out: Blob[] = [];
   const stack: number[] = [];
   for (let i = 0; i < m.length; i++) {
     if (!m[i] || seen[i]) continue;
     const b: Blob = { x0: w, y0: h, x1: -1, y1: -1, n: 0 };
+    const id = out.length + 1;
     stack.push(i);
     seen[i] = 1;
     while (stack.length) {
       const p = stack.pop()!;
+      if (label) label[p] = id;
       const x = p % w;
       const y = (p - x) / w;
       b.n++;
@@ -112,34 +118,177 @@ function isSlash(m: Uint8Array, w: number, b: { x0: number; y0: number; x1: numb
   };
   let ink = 0;
   for (let y = b.y0; y <= b.y1; y++) for (let x = b.x0; x <= b.x1; x++) ink += m[y * w + x];
-  const thin = ink / (b.bw * b.bh) < 0.3;
+  const density = ink / (b.bw * b.bh);
   const lean = Math.abs(mid(b.y0, b.y0 + third - 1) - mid(b.y1 - third + 1, b.y1));
-  return thin && lean > b.bw * 0.45;
+  // Digits are taller than wide; a slide mark lying flatter can be thicker.
+  if (b.bw >= b.bh * 1.2) return density < 0.5 && lean > b.bw * 0.4;
+  return density < 0.3 && lean > b.bw * 0.45;
 }
 
 /**
- * The digit-sized marks centred on a staff line. Two marks side by side on
- * the same line (a "12") become one token. `lines` are y's in the image.
+ * A digit can touch its stem (the line hanging below it, or above it in
+ * some tabs), making one tall mark. Keep the wider part, the digit itself;
+ * marks that are already digit-sized are left alone.
  */
-export function findTokens(gray: Uint8Array, w: number, h: number, lines: number[]): Token[] {
+function withoutStems(b: Blob, id: number, label: Int32Array, w: number, sp: number): Blob[] {
+  const bh = b.y1 - b.y0 + 1;
+  const bw = b.x1 - b.x0 + 1;
+  if (bh <= sp * 1.05 || bh > sp * 7 || bw > sp * 0.95) return [b];
+  const wide = Math.max(3, sp * 0.3);
+  const rows: { x0: number; x1: number; n: number }[] = [];
+  for (let y = b.y0; y <= b.y1; y++) {
+    let x0 = Infinity;
+    let x1 = -1;
+    for (let x = b.x0; x <= b.x1; x++)
+      if (label[y * w + x] === id) {
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+      }
+    rows.push({ x0, x1, n: x1 >= 0 ? x1 - x0 + 1 : 0 });
+  }
+  const out: Blob[] = [];
+  const gapMax = Math.max(1, Math.round(sp * 0.2));
+  let start = -1;
+  let last = -1;
+  const close = () => {
+    if (start < 0) return;
+    const part = rows.slice(start, last + 1);
+    const ph = last - start + 1;
+    // The rest must be a straight stem: narrow, upright, long enough
+    // (so rests and other squiggles don't count).
+    const rest = rows.filter((r, i) => (i < start || i > last) && r.n > 0);
+    const mids = rest.map((r) => (r.x0 + r.x1) / 2);
+    const straight =
+      rest.length >= sp * 0.5 && rest.every((r) => r.n < wide) && Math.max(...mids) - Math.min(...mids) <= Math.max(1.5, sp * 0.1);
+    // An arrow head on a strum arrow is a solid triangle; digits are strokes.
+    let ink = 0;
+    for (let y = b.y0 + start; y <= b.y0 + last; y++) for (let x = b.x0; x <= b.x1; x++) if (label[y * w + x] === id) ink++;
+    const bodyW = Math.max(...part.map((r) => r.x1)) - Math.min(...part.filter((r) => r.n).map((r) => r.x0)) + 1;
+    const solid = ink / (bodyW * ph) > 0.55;
+    if (straight && !solid && ph >= sp * 0.45 && ph <= sp * 1.05)
+      out.push({
+        x0: Math.min(...part.filter((r) => r.n).map((r) => r.x0)),
+        x1: Math.max(...part.map((r) => r.x1)),
+        y0: b.y0 + start,
+        y1: b.y0 + last,
+        n: 0,
+      });
+    start = -1;
+  };
+  rows.forEach((r, i) => {
+    if (r.n < wide) return;
+    if (start >= 0 && i - last - 1 > gapMax) close();
+    if (start < 0) start = i;
+    last = i;
+  });
+  close();
+  return out;
+}
+
+/** Which staff line a y is on (1–6), or 0 if it's not near one. */
+function stringAt(y: number, lines: number[], sp: number, within: number): number {
+  let s = 0;
+  let best = Infinity;
+  lines.forEach((ly, i) => {
+    if (Math.abs(y - ly) < best) {
+      best = Math.abs(y - ly);
+      s = i + 1;
+    }
+  });
+  return best <= sp * within ? s : 0;
+}
+
+/** Ink rows of one blob: leftmost/rightmost x per row and the count. */
+function rowsOf(b: Blob, id: number, label: Int32Array, w: number): { x0: number; x1: number; n: number; ink: number }[] {
+  const rows = [];
+  for (let y = b.y0; y <= b.y1; y++) {
+    let x0 = Infinity;
+    let x1 = -1;
+    let ink = 0;
+    for (let x = b.x0; x <= b.x1; x++)
+      if (label[y * w + x] === id) {
+        ink++;
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+      }
+    rows.push({ x0, x1, n: x1 >= 0 ? x1 - x0 + 1 : 0, ink });
+  }
+  return rows;
+}
+
+/**
+ * A strum arrow: a long upright stem with a solid head at one end. Returns
+ * which way it points, or null.
+ */
+function arrowOf(b: Blob, id: number, label: Int32Array, w: number, sp: number): "up" | "down" | null {
+  const bh = b.y1 - b.y0 + 1;
+  const bw = b.x1 - b.x0 + 1;
+  if (bh < sp * 1.5 || bw > sp * 1.2 || bw < 3) return null;
+  const rows = rowsOf(b, id, label, w);
+  const stemW = Math.max(1, Math.min(...rows.filter((r) => r.n).map((r) => r.n)));
+  const part = Math.max(2, Math.round(bh * 0.3));
+  const top = Math.max(...rows.slice(0, part).map((r) => r.n));
+  const bottom = Math.max(...rows.slice(-part).map((r) => r.n));
+  const middle = rows.slice(part, -part);
+  const straight = middle.every((r) => r.n <= stemW + 2);
+  if (!straight) return null;
+  if (bottom >= stemW * 3 && bottom >= sp * 0.35 && top <= stemW + 2) return "down";
+  if (top >= stemW * 3 && top >= sp * 0.35 && bottom <= stemW + 2) return "up";
+  return null;
+}
+
+/** A hammer-on/pull-off (or tie) arc: a thin curve wider than a digit, not tall. */
+function isArc(m: Uint8Array, w: number, b: { x0: number; y0: number; x1: number; y1: number; bw: number; bh: number }, sp: number): boolean {
+  if (b.bw < sp * 0.7 || b.bw > sp * 5 || b.bh < 2 || b.bh > sp * 0.8) return false;
+  let ink = 0;
+  for (let y = b.y0; y <= b.y1; y++) for (let x = b.x0; x <= b.x1; x++) ink += m[y * w + x];
+  if (ink / (b.bw * b.bh) > 0.5) return false;
+  // Curved: the middle sits higher (∩) or lower (∪) than the ends.
+  const topAt = (x: number) => {
+    for (let y = b.y0; y <= b.y1; y++) if (m[y * w + x]) return y;
+    return b.y1;
+  };
+  const ends = (topAt(b.x0) + topAt(b.x1)) / 2;
+  const mid = topAt(Math.round((b.x0 + b.x1) / 2));
+  return Math.abs(ends - mid) >= Math.max(1.5, b.bh * 0.4);
+}
+
+export interface Found {
+  tokens: Token[];
+  slides: { x0: number; x1: number; string: number }[];
+  arcs: { x0: number; x1: number; y1: number }[];
+  arrows: { x: number; dir: "up" | "down" }[];
+}
+
+/**
+ * Everything on the staff: the digit-sized marks centred on a line (two
+ * side by side, a "12", become one token), and the symbols around them —
+ * slide marks, hammer-on/pull-off arcs, strum arrows. `lines` are y's in
+ * the image. Techniques and strums are put on the tokens they belong to.
+ */
+export function findAll(gray: Uint8Array, w: number, h: number, lines: number[]): Found {
   const sp = (lines[5] - lines[0]) / 5;
   const m = inkMask(gray, w, h);
-  const marks = blobs(m, w, h)
-    .map((b) => ({ ...b, bw: b.x1 - b.x0 + 1, bh: b.y1 - b.y0 + 1 }))
-    .filter((b) => b.bh >= sp * 0.45 && b.bh <= sp * 1.05 && b.bw <= sp * 0.95 && b.bw >= 1)
+  const label = new Int32Array(w * h);
+  const found = blobs(m, w, h, label);
+  const arrows: Found["arrows"] = [];
+  found.forEach((b, k) => {
+    const dir = arrowOf(b, k + 1, label, w, sp);
+    if (dir) arrows.push({ x: (b.x0 + b.x1) / 2, dir });
+  });
+  const sized = found
+    .flatMap((b, k) => withoutStems(b, k + 1, label, w, sp))
+    .map((b) => ({ ...b, bw: b.x1 - b.x0 + 1, bh: b.y1 - b.y0 + 1 }));
+  const arcs = sized.filter((b) => isArc(m, w, b, sp)).map((b) => ({ x0: b.x0, x1: b.x1, y1: b.y1 }));
+  const digitSized = sized.filter((b) => b.bh >= sp * 0.45 && b.bh <= sp * 1.05 && b.bw <= sp * 0.95 && b.bw >= 1);
+  // Slide marks can be shorter than a digit.
+  const slides = sized
+    .filter((b) => b.bh >= sp * 0.25 && b.bh <= sp * 1.05 && b.bw <= sp * 1.6 && isSlash(m, w, b))
+    .map((b) => ({ x0: b.x0, x1: b.x1, string: stringAt((b.y0 + b.y1) / 2, lines, sp, 0.45) }))
+    .filter((s) => s.string > 0);
+  const marks = digitSized
     .filter((b) => !isSlash(m, w, b))
-    .map((b) => {
-      const cy = (b.y0 + b.y1) / 2;
-      let s = 0;
-      let best = Infinity;
-      lines.forEach((ly, i) => {
-        if (Math.abs(cy - ly) < best) {
-          best = Math.abs(cy - ly);
-          s = i + 1;
-        }
-      });
-      return { ...b, string: best <= sp * 0.3 ? s : 0 };
-    })
+    .map((b) => ({ ...b, string: stringAt((b.y0 + b.y1) / 2, lines, sp, 0.3) }))
     .filter((b) => b.string > 0)
     .sort((a, b) => a.string - b.string || a.x0 - b.x0);
 
@@ -155,7 +304,36 @@ export function findTokens(gray: Uint8Array, w: number, h: number, lines: number
     }
     tokens.push({ x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1, string: b.string, marks: 1 });
   }
-  return tokens.sort((a, b) => a.x0 - b.x0 || a.string - b.string);
+  tokens.sort((a, b) => a.x0 - b.x0 || a.string - b.string);
+
+  // A slide mark between two frets on a string: the second is slid into.
+  for (const sl of slides) {
+    const right = tokens.find((t) => t.string === sl.string && t.x0 >= sl.x1 - 2 && t.x0 - sl.x1 <= sp * 1.2);
+    const left = tokens.some((t) => t.string === sl.string && t.x1 <= sl.x0 + 2 && sl.x0 - t.x1 <= sp * 1.2);
+    if (right && left) right.tech = "slide";
+  }
+  // An arc over two frets: from the first to the second (hammer-on or
+  // pull-off, decided once the frets are read).
+  for (const arc of arcs) {
+    const below = tokens.filter((t) => t.y0 >= arc.y1 - 2 && t.y0 - arc.y1 <= sp * 1.3);
+    const start = below.filter((t) => Math.abs((t.x0 + t.x1) / 2 - arc.x0) <= sp * 0.9);
+    const end = below.filter((t) => Math.abs((t.x0 + t.x1) / 2 - arc.x1) <= sp * 0.9);
+    const pair = end.find((e) => start.some((s) => s.string === e.string && s !== e));
+    if (pair) pair.tech = "hammer"; // hammer or pull: set from the frets later
+  }
+  // A strum arrow just left of a chord: every note of that chord.
+  for (const ar of arrows) {
+    const next = tokens.filter((t) => t.x0 > ar.x && t.x0 - ar.x <= sp * 1.6);
+    if (!next.length) continue;
+    const x0 = Math.min(...next.map((t) => t.x0));
+    for (const t of next) if (t.x0 - x0 <= sp * 0.5) t.strum = ar.dir;
+  }
+  return { tokens, slides, arcs, arrows };
+}
+
+/** Just the digit tokens (see findAll). */
+export function findTokens(gray: Uint8Array, w: number, h: number, lines: number[]): Token[] {
+  return findAll(gray, w, h, lines).tokens;
 }
 
 /**
@@ -207,32 +385,44 @@ export interface ReadChar {
 
 const DIGITISH: Record<string, string> = { O: "0", o: "0", D: "0", Q: "0", l: "1", I: "1", i: "1", "|": "1", "!": "1", Z: "2", z: "2", S: "5", s: "5", B: "8", g: "9", q: "9", A: "4", T: "7" };
 
+/** What one token was read as. */
+export interface ReadToken {
+  fret: number;
+  /** Shown as x: a muted/percussive hit, no fret. */
+  mute?: boolean;
+  harmonic?: boolean;
+}
+
 /**
  * Put what was read in the layout back on the tokens: each character
- * belongs to the slot its centre is in. Returns the fret per token (null
- * where nothing sensible was read, or an X).
+ * belongs to the slot its centre is in. null where nothing sensible was
+ * read.
  */
-export function readTokens(layout: Layout, chars: ReadChar[]): (number | null)[] {
+export function readTokens(layout: Layout, chars: ReadChar[]): (ReadToken | null)[] {
   const got: { cx: number; c: string }[][] = layout.slots.map(() => []);
+  const brackets = layout.slots.map(() => false);
   for (const ch of chars) {
     const cx = ch.x + ch.w / 2;
     const cy = ch.y + ch.h / 2;
     const i = layout.slots.findIndex((s) => cx >= s.x0 - 4 && cx <= s.x1 + 4 && cy >= s.y0 - 4 && cy <= s.y1 + 4);
     if (i < 0) continue;
     for (const c of ch.c) {
-      const d = /\d/.test(c) ? c : (DIGITISH[c] ?? (c === "x" || c === "X" ? "x" : ""));
+      if (c === "<" || c === ">") brackets[i] = true;
+      const d = /\d/.test(c) ? c : (DIGITISH[c] ?? (c === "x" || c === "X" || c === "×" ? "x" : ""));
       if (d) got[i].push({ cx, c: d });
     }
   }
   return got.map((list, i) => {
     const slot = layout.slots[i];
-    if (!list.length || list.some((g) => g.c === "x")) return null;
+    if (!list.length) return null;
+    if (list.some((g) => g.c === "x")) return { fret: 0, mute: true };
+    const digits = list.filter((g) => g.c !== "x");
     // A single mark is a single digit: keep the one nearest the middle.
     const mid = (slot.x0 + slot.x1) / 2;
-    const keep = [...list].sort((p, q) => Math.abs(p.cx - mid) - Math.abs(q.cx - mid)).slice(0, slot.marks);
+    const keep = [...digits].sort((p, q) => Math.abs(p.cx - mid) - Math.abs(q.cx - mid)).slice(0, slot.marks);
     const t = keep.sort((p, q) => p.cx - q.cx).map((g) => g.c).join("");
     const n = Number(t);
-    return n <= 24 ? n : Number(t[0]);
+    return { fret: n <= 24 ? n : Number(t[0]), harmonic: brackets[i] || undefined };
   });
 }
 
@@ -245,24 +435,42 @@ export interface Area {
   y: number;
 }
 
+export interface AreaNote {
+  string: number;
+  fret: number;
+  /** x in video pixels. */
+  x: number;
+  tech?: "slide" | "hammer" | "pull" | "harmonic" | "mute";
+  strum?: "up" | "down";
+}
+
 /**
  * All of it together: the notes in one tab area. `read` reads a layout
- * picture (ML Kit on the phone). x of each note is in video pixels.
+ * picture (ML Kit on the phone).
  */
-export async function notesFromArea(
-  area: Area,
-  lines: number[],
-  read: (l: Layout) => Promise<ReadChar[]>,
-): Promise<{ string: number; fret: number; x: number }[]> {
+export async function notesFromArea(area: Area, lines: number[], read: (l: Layout) => Promise<ReadChar[]>): Promise<AreaNote[]> {
   const local = lines.map((y) => y - area.y);
-  const tokens = findTokens(area.gray, area.w, area.h, local);
+  const { tokens } = findAll(area.gray, area.w, area.h, local);
   if (!tokens.length) return [];
   const lay = layOut(area.gray, area.w, area.h, tokens, local);
-  const frets = readTokens(lay, await read(lay));
-  const out: { string: number; fret: number; x: number }[] = [];
+  const got = readTokens(lay, await read(lay));
+  const out: AreaNote[] = [];
   tokens.forEach((t, i) => {
-    const f = frets[i];
-    if (f !== null) out.push({ string: t.string, fret: f, x: area.x + (t.x0 + t.x1) / 2 });
+    const r = got[i];
+    if (!r) return;
+    const n: AreaNote = { string: t.string, fret: r.fret, x: area.x + (t.x0 + t.x1) / 2 };
+    if (r.mute) n.tech = "mute";
+    else if (r.harmonic) n.tech = "harmonic";
+    else if (t.tech) n.tech = t.tech;
+    if (t.strum) n.strum = t.strum;
+    out.push(n);
   });
+  // An arc: hammer-on if it goes up the neck, pull-off if down.
+  for (const n of out) {
+    if (n.tech !== "hammer") continue;
+    const before = out.filter((p) => p.string === n.string && p.x < n.x).pop();
+    if (!before || before.fret === n.fret) delete n.tech;
+    else n.tech = n.fret > before.fret ? "hammer" : "pull";
+  }
   return out.sort((p, q) => p.x - q.x || p.string - q.string);
 }

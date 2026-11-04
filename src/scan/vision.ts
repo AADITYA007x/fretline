@@ -358,6 +358,8 @@ export interface ScreenNote {
   fret: number;
   /** x of the note's centre, in video pixels. */
   x: number;
+  tech?: "slide" | "hammer" | "pull" | "harmonic" | "mute";
+  strum?: "up" | "down";
 }
 
 const DIGITISH: Record<string, string> = { O: "0", o: "0", D: "0", Q: "0", l: "1", I: "1", "|": "1", Z: "2", S: "5", s: "5", B: "8" };
@@ -415,17 +417,25 @@ export function mergeReadings(readings: ScreenNote[][], tol: number): ScreenNote
   const used = readings.filter((r) => r.length > 0);
   if (used.length <= 1) return used[0] ?? [];
   const need = Math.ceil(readings.length / 2);
-  const groups: { string: number; xs: number[]; frets: number[]; from: Set<number> }[] = [];
+  const groups: { string: number; xs: number[]; frets: number[]; notes: ScreenNote[]; from: Set<number> }[] = [];
   readings.forEach((r, ri) => {
     for (const n of r) {
       const g = groups.find((q) => q.string === n.string && !q.from.has(ri) && Math.abs(q.xs[0] - n.x) <= tol);
       if (g) {
         g.xs.push(n.x);
         g.frets.push(n.fret);
+        g.notes.push(n);
         g.from.add(ri);
-      } else groups.push({ string: n.string, xs: [n.x], frets: [n.fret], from: new Set([ri]) });
+      } else groups.push({ string: n.string, xs: [n.x], frets: [n.fret], notes: [n], from: new Set([ri]) });
     }
   });
+  const most = <T,>(xs: T[]): T => {
+    const c = new Map<T, number>();
+    for (const x of xs) c.set(x, (c.get(x) ?? 0) + 1);
+    let best = xs[0];
+    for (const [x, k] of c) if (k > (c.get(best) ?? 0)) best = x;
+    return best;
+  };
   const out: ScreenNote[] = [];
   for (const g of groups) {
     if (g.from.size < need) continue;
@@ -433,7 +443,12 @@ export function mergeReadings(readings: ScreenNote[][], tol: number): ScreenNote
     for (const f of g.frets) count.set(f, (count.get(f) ?? 0) + 1);
     let fret = g.frets[0];
     for (const [f, c] of count) if (c > (count.get(fret) ?? 0)) fret = f;
-    out.push({ string: g.string, fret, x: g.xs.reduce((a, b) => a + b, 0) / g.xs.length });
+    const note: ScreenNote = { string: g.string, fret, x: g.xs.reduce((a, b) => a + b, 0) / g.xs.length };
+    const tech = most(g.notes.map((n) => n.tech));
+    const strum = most(g.notes.map((n) => n.strum));
+    if (tech) note.tech = tech;
+    if (strum) note.strum = strum;
+    out.push(note);
   }
   return out.sort((p, q) => p.x - q.x || p.string - q.string);
 }
