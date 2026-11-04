@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#1d1512" />
+    <title>Fretline</title>
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="./favicon-32.png" sizes="32x32" type="image/png" />
+    <script>
+      try {
+        if (!localStorage.getItem("fretline:auth")) document.documentElement.classList.add("entry");
+      } catch (e) {
+        document.documentElement.classList.add("entry");
+      }
+    </script>
+  </head>
+  <body>
+    <div id="entry-screen" class="entry-screen" role="dialog" aria-label="Sign in to Fretline">
+      <form id="entry-form" class="entry-panel" autocomplete="on">
+        <img src="./favicon.svg" alt="" class="entry-logo" />
+        <h1 class="entry-title">Fretline</h1>
+        <p class="entry-sub">Fretline is private. Sign in with the account Aaditya made for you.</p>
+        <label class="field">
+          <span>Email</span>
+          <input id="entry-email" type="email" required autocomplete="email" inputmode="email" />
+        </label>
+        <label class="field">
+          <span>Password</span>
+          <input id="entry-password" type="password" required minlength="6" autocomplete="current-password" />
+        </label>
+        <p id="entry-error" class="form-error" hidden></p>
+        <button id="entry-submit" type="submit" class="btn-primary">Sign in</button>
+        <p class="entry-note">No account? Ask Aaditya for one.</p>
+      </form>
+    </div>
+
+    <div class="app" id="app">
+      <header class="topbar">
+        <div class="brand"><img src="./favicon.svg" alt="" /><span>Fretline</span></div>
+        <button id="menu-btn" class="icon-btn" aria-label="Menu">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10" /></svg>
+        </button>
+      </header>
+
+      <a id="update-banner" class="update-banner" href="#" target="_blank" rel="noopener" hidden>
+        <b id="update-version">New version ready</b>
+        <span>Tap to download, then open it to install</span>
+      </a>
+
+      <main class="views">
+        <section id="view-lessons" class="view" hidden>
+          <div class="lessons-empty">
+            <svg class="lessons-art" viewBox="0 0 240 120" aria-hidden="true">
+              <g class="tab-lines"><path d="M8 20h224M8 36h224M8 52h224M8 68h224M8 84h224M8 100h224" /></g>
+              <g class="tab-nums">
+                <text x="40" y="74">2</text><text x="76" y="58">0</text><text x="112" y="42">1</text>
+                <text x="148" y="58">2</text><text x="184" y="26">3</text>
+              </g>
+            </svg>
+            <h2>Lessons come next</h2>
+            <p>
+              In the next update you'll share a YouTube lesson to Fretline and watch it here, with a tab strip under the
+              video that follows what he plays.
+            </p>
+            <p class="muted">For now, the tuner is ready.</p>
+            <button id="go-tuner" class="btn-secondary">Open the tuner</button>
+          </div>
+        </section>
+
+        <section id="view-tuner" class="view">
+          <div class="tuner-head">
+            <button id="tuning-btn" class="tuning-btn" aria-haspopup="dialog">
+              <span id="tuning-instrument" class="tuning-instrument">Guitar</span>
+              <span id="tuning-name" class="tuning-name">Standard</span>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5" /></svg>
+            </button>
+            <button id="a4-btn" class="a4-btn" aria-label="Reference pitch">A4 <b id="a4-value">440</b></button>
+          </div>
+
+          <div class="readout" id="readout" data-state="idle">
+            <svg class="gauge" viewBox="0 0 300 150" aria-hidden="true">
+              <g id="gauge-ticks"></g>
+              <path class="gauge-zone" d="" id="gauge-zone" />
+              <g id="needle" class="needle"><line x1="150" y1="78" x2="150" y2="22" /></g>
+            </svg>
+            <div class="note">
+              <span id="note-name" class="note-name">–</span><span id="note-octave" class="note-octave"></span>
+            </div>
+            <p id="cents" class="cents" aria-live="polite">Tap Start, then play a string</p>
+          </div>
+
+          <div id="strings" class="strings" role="group" aria-label="Strings"></div>
+
+          <div class="mode" role="radiogroup" aria-label="Tuner mode">
+            <button class="mode-btn" data-mode="auto" role="radio">Auto</button>
+            <button class="mode-btn" data-mode="manual" role="radio">Pick a string</button>
+            <button class="mode-btn" data-mode="tone" role="radio">Hear it</button>
+          </div>
+          <label id="sustain-row" class="sustain-row" hidden>
+            <input id="sustain" type="checkbox" /> Keep the tone ringing
+          </label>
+          <p id="mode-hint" class="mode-hint"></p>
+
+          <button id="listen-btn" class="btn-primary listen-btn">Start listening</button>
+          <p id="mic-error" class="form-error" hidden></p>
+        </section>
+      </main>
+
+      <nav class="tabbar" aria-label="Sections">
+        <button class="tab" data-view="lessons">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="11" rx="2" /><path d="M10 8.5l4 2.5-4 2.5z" /><path d="M3 20h18" /></svg>
+          <span>Lessons</span>
+        </button>
+        <button class="tab" data-view="tuner">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 18a8 8 0 1 1 14 0" /><path d="M12 18l3.5-6" /></svg>
+          <span>Tuner</span>
+        </button>
+      </nav>
+    </div>
+
+    <!-- Bottom sheets -->
+    <div id="sheet-backdrop" class="sheet-backdrop" hidden></div>
+
+    <section id="menu-sheet" class="sheet" role="dialog" aria-label="Menu" hidden>
+      <div class="sheet-grip"></div>
+      <h2 class="sheet-title">Fretline</h2>
+      <div class="menu-account">
+        <div id="menu-name" class="menu-name"></div>
+        <div id="menu-email" class="muted"></div>
+      </div>
+      <h3 class="sheet-sub">Colours</h3>
+      <div id="theme-swatches" class="swatches"></div>
+      <button id="sign-out-btn" class="btn-secondary">Sign out</button>
+      <p id="app-version" class="muted version"></p>
+    </section>
+
+    <section id="tuning-sheet" class="sheet tall" role="dialog" aria-label="Choose a tuning" hidden>
+      <div class="sheet-grip"></div>
+      <h2 class="sheet-title">Tuning</h2>
+      <div id="instrument-tabs" class="seg" role="tablist"></div>
+      <div id="tuning-list" class="tuning-list"></div>
+      <button id="new-tuning-btn" class="btn-secondary">New tuning</button>
+      <h3 class="sheet-sub">Songs</h3>
+      <div id="song-list" class="song-list"></div>
+      <form id="song-form" class="song-form">
+        <input id="song-input" type="text" maxlength="60" placeholder="Song name, e.g. Neon" autocomplete="off" />
+        <button type="submit" class="btn-secondary">Save with this tuning</button>
+      </form>
+    </section>
+
+    <section id="editor-sheet" class="sheet tall" role="dialog" aria-label="Edit tuning" hidden>
+      <div class="sheet-grip"></div>
+      <h2 id="editor-title" class="sheet-title">New tuning</h2>
+      <label class="field">
+        <span>Name</span>
+        <input id="editor-name" type="text" maxlength="40" placeholder="e.g. Neon tuning" />
+      </label>
+      <div id="editor-strings" class="editor-strings"></div>
+      <div class="editor-count">
+        <button id="editor-remove" class="btn-ghost">Remove a string</button>
+        <button id="editor-add" class="btn-ghost">Add a string</button>
+      </div>
+      <p id="editor-error" class="form-error" hidden></p>
+      <div class="sheet-actions">
+        <button id="editor-delete" class="btn-danger" hidden>Delete</button>
+        <button id="editor-save" class="btn-primary">Save tuning</button>
+      </div>
+    </section>
+
+    <section id="a4-sheet" class="sheet" role="dialog" aria-label="Reference pitch" hidden>
+      <div class="sheet-grip"></div>
+      <h2 class="sheet-title">Reference pitch</h2>
+      <p class="muted">Almost everything uses A4 = 440 Hz. Change it only to match a recording or another instrument.</p>
+      <div class="stepper">
+        <button id="a4-down" class="step-btn" aria-label="Lower">−</button>
+        <output id="a4-out" class="step-value">440 Hz</output>
+        <button id="a4-up" class="step-btn" aria-label="Higher">+</button>
+      </div>
+      <button id="a4-reset" class="btn-ghost">Back to 440 Hz</button>
+    </section>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

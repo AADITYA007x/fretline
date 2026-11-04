@@ -1,0 +1,19 @@
+<svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="bg" cx="35%" cy="28%" r="85%"><stop offset="0%" stop-color="#2a1d12"/><stop offset="100%" stop-color="#0c0907"/></radialGradient>
+    <linearGradient id="pick" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#ffc067"/><stop offset="100%" stop-color="#e0822b"/></linearGradient>
+  </defs>
+  <g transform="translate(512,512) scale(0.72) translate(-512,-512)">
+    <!-- pick -->
+    <path d="M512 214 C 690 214 782 286 782 400 C 782 560 640 720 512 810 C 384 720 242 560 242 400 C 242 286 334 214 512 214 Z" fill="none" stroke="url(#pick)" stroke-width="34" stroke-linejoin="round"/>
+    <!-- strings -->
+    <line x1="318" y1="372" x2="706" y2="372" stroke="#efe3cf" stroke-width="12" stroke-linecap="round" opacity="0.55"/>
+    <line x1="334" y1="462" x2="690" y2="462" stroke="#efe3cf" stroke-width="12" stroke-linecap="round" opacity="0.75"/>
+    <line x1="376" y1="552" x2="648" y2="552" stroke="#efe3cf" stroke-width="12" stroke-linecap="round" opacity="0.55"/>
+    <!-- fret -->
+    <line x1="560" y1="330" x2="560" y2="594" stroke="#efe3cf" stroke-width="8" stroke-linecap="round" opacity="0.3"/>
+    <!-- the note being played -->
+    <circle cx="512" cy="462" r="44" fill="#5ee6a8"/>
+    <circle cx="512" cy="462" r="72" fill="none" stroke="#5ee6a8" stroke-width="10" opacity="0.35"/>
+  </g>
+</svg>

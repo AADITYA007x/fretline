@@ -1,0 +1,7 @@
+<svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="bg" cx="35%" cy="28%" r="85%"><stop offset="0%" stop-color="#2a1d12"/><stop offset="100%" stop-color="#0c0907"/></radialGradient>
+    <linearGradient id="pick" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#ffc067"/><stop offset="100%" stop-color="#e0822b"/></linearGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+</svg>

@@ -1,0 +1,32 @@
+{
+  "name": "fretline",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Fretline: a private guitar helper for Android — lesson player with live tabs, and a tuner.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "e2e": "playwright test",
+    "android:sync": "npm run build && cap sync android"
+  },
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/core": "^8.6.0",
+    "@fontsource-variable/bricolage-grotesque": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
+    "@supabase/supabase-js": "^2.118.0"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^4.0.0",
+    "@capacitor/cli": "^8.6.0",
+    "@playwright/test": "^1.63.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.7",
+    "vitest": "^5.1.0"
+  }
+}
