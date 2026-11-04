@@ -67,8 +67,12 @@ export async function fakeMic(page: Page, opts: { deny?: boolean } = {}): Promis
       calls: 0,
       set(freq: number) {
         if (!ctx || !gain) return;
-        gain.gain.value = freq ? 0.3 : 0;
-        oscs.forEach((o, i) => o.frequency.setValueAtTime(freq * (i + 1) || 1, ctx!.currentTime));
+        // Like a new pluck: a short silence, then the note.
+        const t = ctx.currentTime;
+        gain.gain.cancelScheduledValues(t);
+        gain.gain.setValueAtTime(0, t);
+        oscs.forEach((o, i) => o.frequency.setValueAtTime(freq * (i + 1) || 1, t + 0.1));
+        if (freq) gain.gain.setValueAtTime(0.3, t + 0.15);
       },
     };
     Object.defineProperty(navigator, "mediaDevices", { value: {}, configurable: true });

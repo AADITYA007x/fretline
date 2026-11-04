@@ -28,7 +28,10 @@ let range = { minFreq: 60, maxFreq: 450 };
 const smoother = new PitchSmoother(7);
 let lastLevel = 0;
 let onsetAt = 0;
-const ATTACK_MS = 140; // a picked note starts sharp; skip its first moment
+// A picked note starts sharp, and the analysis frame (up to ~0.35 s) needs
+// to be mostly past the pluck before a reading is fair.
+let attackMs = 150;
+const JUMP_MS = 900; // a different note needs a fresh pluck within this long
 let quietSince = 0;
 let mutedUntil = 0;
 let listener: (r: Reading | null) => void = () => {};
@@ -56,6 +59,7 @@ export function setRange(minFreq: number, maxFreq: number): void {
   if (analyser && ctx) {
     analyser.fftSize = frameSizeFor(minFreq, ctx.sampleRate);
     frame = new Float32Array(analyser.fftSize);
+    attackMs = Math.max(150, ((analyser.fftSize / ctx.sampleRate) * 1000) * 0.75);
   }
 }
 
@@ -99,7 +103,9 @@ export function stopListening(): void {
 function tick(): void {
   if (!analyser || !ctx) return;
   analyser.getFloatTimeDomainData(frame);
-  const level = rms(frame);
+  // Loudness of just the last ~40 ms: the long analysis frame would blur a
+  // new pluck or a mute.
+  const level = rms(frame.subarray(frame.length - 2048));
   const now = performance.now();
   if (now < mutedUntil || level < SILENCE) {
     lastLevel = level;
@@ -112,16 +118,16 @@ function tick(): void {
     return;
   }
   // A new pluck: start fresh and let the attack settle before reading.
-  if (level > lastLevel * 2.5 && level > SILENCE * 2) {
+  if (level > lastLevel * 1.6 && level > SILENCE * 2) {
     onsetAt = now;
     smoother.reset();
   }
   lastLevel = level;
-  if (now - onsetAt < ATTACK_MS) return;
+  if (now - onsetAt < attackMs) return;
   const r = detectPitch(frame, { sampleRate: ctx.sampleRate, ...range });
   if (!r || r.clarity < MIN_CLARITY) return;
   quietSince = 0;
-  listener({ freq: smoother.push(r.freq), clarity: r.clarity, level });
+  listener({ freq: smoother.push(r.freq, now - onsetAt < JUMP_MS), clarity: r.clarity, level });
 }
 
 // --- Reference tones --------------------------------------------------------------

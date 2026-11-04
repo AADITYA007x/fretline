@@ -112,7 +112,7 @@ function crossCorrelate(x: Float32Array, window: number, maxLag: number): Float6
  */
 export function frameSizeFor(minFreq: number, sampleRate: number): number {
   let size = 4096;
-  while (size < (6 * sampleRate) / minFreq && size < 16384) size *= 2;
+  while (size < (12 * sampleRate) / minFreq && size < 16384) size *= 2;
   return size;
 }
 
@@ -322,45 +322,70 @@ function partialFreq(s: Spectrum, approx: number, sampleRate: number): number | 
 }
 
 /**
- * The fundamental partial's exact frequency. When the phone's mic barely
- * picks up the fundamental (low strings), use the 2nd partial ÷ 2.
+ * The note's exact frequency from its lowest partials. Each partial m gives
+ * an estimate (its frequency ÷ m); strong ones count more. On a phone lying
+ * on the guitar, the fundamental of the higher strings fades within a second
+ * while the 2nd–3rd partials ring on steadily, so using only the fundamental
+ * makes the reading wander. Stiff strings make higher partials a touch
+ * sharp, so only partials 1–4 are used and weak ones are ignored.
  */
 function measureFundamental(s: Spectrum, f0: number, sampleRate: number): number | null {
-  const k1 = peakBin(s, f0, sampleRate, 40);
-  const k2 = peakBin(s, f0 * 2, sampleRate, 40);
-  if (k1 < 0) return null;
-  if (k2 > 0 && mag(s, k1) < 0.2 * mag(s, k2)) {
-    const f2 = partialFreq(s, f0 * 2, sampleRate);
-    return f2 ? f2 / 2 : null;
+  const est: { f: number; w: number }[] = [];
+  let strongest = 0;
+  for (let m = 1; m <= 4; m++) {
+    if (m * f0 > sampleRate / 2 - 200) break;
+    const k = peakBin(s, m * f0, sampleRate, 40);
+    if (k < 2) continue;
+    const w = mag(s, k);
+    const f = partialFreq(s, m * f0, sampleRate);
+    if (!f) continue;
+    est.push({ f: f / m, w: w / m });
+    strongest = Math.max(strongest, w);
   }
-  return partialFreq(s, f0, sampleRate);
+  const good = est.filter((e) => e.w >= strongest * 0.3);
+  if (!good.length) return null;
+  const mid = median(good.map((e) => e.f));
+  const near = good.filter((e) => Math.abs(centsOff(e.f, mid)) < 12);
+  let sum = 0;
+  let wsum = 0;
+  for (const e of near) {
+    sum += e.f * e.w * e.w;
+    wsum += e.w * e.w;
+  }
+  return wsum > 0 ? sum / wsum : null;
 }
 
 /**
- * Another string ringing along (or the guitar body) can make the period
- * look 2–4× longer than the note being played. If the supposed fundamental
- * and its next two partials are nearly silent next to a higher partial,
- * move up an octave.
+ * The period can come out 2–5× too long (another string ringing along, the
+ * guitar body, a fading note), which makes a high E look like a low C. If
+ * only every k-th partial of the supposed note is really there, the note is
+ * k times higher. Repeats, so ÷4 is fixed as ÷2 twice.
  */
 function fixSubharmonic(s: Spectrum, f0: number, sampleRate: number, maxFreq: number): number {
   let f = f0;
-  for (let tries = 0; tries < 2; tries++) {
-    if (f * 2 > maxFreq * 1.1) break;
-    let low = 0;
-    let all = 0;
-    for (let m = 1; m <= 8; m++) {
-      if (m * f > sampleRate / 2 - 100) break;
-      const k = peakBin(s, m * f, sampleRate, 30);
-      if (k < 0) continue;
-      const v = mag(s, k);
-      if (m <= 3) low = Math.max(low, v);
-      all = Math.max(all, v);
+  for (let round = 0; round < 4; round++) {
+    const mags: number[] = [0];
+    for (let m = 1; m <= 10; m++) {
+      if (m * f > sampleRate / 2 - 200) break;
+      const k = peakBin(s, m * f, sampleRate, 25);
+      mags.push(k > 0 ? mag(s, k) : 0);
     }
-    // Odd partials (1, 3) of f missing and the even ones strong = it's 2f.
-    const odd = Math.max(mag(s, Math.max(1, peakBin(s, f, sampleRate, 30))), mag(s, Math.max(1, peakBin(s, 3 * f, sampleRate, 30))));
-    const even = Math.max(mag(s, Math.max(1, peakBin(s, 2 * f, sampleRate, 30))), mag(s, Math.max(1, peakBin(s, 4 * f, sampleRate, 30))));
-    if (low < 0.12 * all || odd < 0.12 * even) f *= 2;
-    else break;
+    let moved = false;
+    for (const k of [2, 3, 5]) {
+      if (f * k > maxFreq * 1.1) continue;
+      let on = 0;
+      let off = 0;
+      for (let m = 1; m < mags.length; m++) {
+        if (m % k === 0) on = Math.max(on, mags[m]);
+        else off = Math.max(off, mags[m]);
+      }
+      if (on > 0 && off < on * 0.08) {
+        f *= k;
+        moved = true;
+        break;
+      }
+    }
+    if (!moved) break;
   }
   return f;
 }
@@ -422,13 +447,19 @@ export class PitchSmoother {
 
   constructor(private size = 5) {}
 
-  push(freq: number): number {
+  /**
+   * `canJump`: whether a different note may take over. Pass false when no
+   * new pluck happened recently: a ringing string's quiet tail (or another
+   * string humming along) then can't replace the note being tuned.
+   */
+  push(freq: number, canJump = true): number {
     if (!this.readings.length) {
       this.readings.push(freq);
       return freq;
     }
     const current = median(this.readings);
     if (Math.abs(centsOff(freq, current)) > 40) {
+      if (!canJump) return current;
       this.pending.push(freq);
       const p = this.pending;
       if (p.length >= 2 && Math.abs(centsOff(p[p.length - 1], p[p.length - 2])) < 40) {
