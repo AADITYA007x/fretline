@@ -172,15 +172,6 @@ test.describe("tuner", () => {
     await page.evaluate((f) => (window as any).__mic.set(f), A2 * (438 / 440));
     await expect(page.locator("#cents")).toHaveText("In tune");
   });
-
-  test("lessons tab explains what's coming", async ({ page }, info) => {
-    await page.goto("/");
-    await page.click('.tab[data-view="lessons"]');
-    await expect(page.locator("#view-lessons")).toBeVisible();
-    await shot(page, "10-lessons", info.project.name);
-    await page.click("#go-tuner");
-    await expect(page.locator("#view-tuner")).toBeVisible();
-  });
 });
 
 test("buds connected: uses the phone's mic, and the mic can be switched", async ({ page }, info) => {

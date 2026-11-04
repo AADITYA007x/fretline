@@ -29,7 +29,6 @@ export function initNav(): void {
   document.querySelectorAll<HTMLElement>(".tab").forEach((t) =>
     t.addEventListener("click", () => showView(t.dataset.view as ViewId)),
   );
-  $("go-tuner").addEventListener("click", () => showView("tuner"));
   const saved = storage.get<ViewId>(KEY, "tuner");
   current = saved === "lessons" ? "tuner" : saved; // so Lessons gets its back step
   showView(saved);

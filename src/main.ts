@@ -12,6 +12,7 @@ import { initTheme } from "./ui/theme";
 import { initToast } from "./ui/toast";
 import { initUpdate } from "./ui/update";
 import { initTuner, stopTuner } from "./tuner/ui";
+import { initLessons } from "./lessons/ui";
 
 initBack();
 initSheets();
@@ -21,6 +22,7 @@ whenEntryOpens(stopTuner);
 initTheme();
 initMenu();
 initTuner();
+initLessons();
 initNav(); // after the tuner, so it hears which section opens first
 initUpdate();
 initSession(); // last: its first auth event fills in the account

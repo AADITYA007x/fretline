@@ -14,6 +14,13 @@ After that, the app shows a banner when a new version is out.
 
 ## What's in it
 
+**v0.2 – Lesson player**
+
+- Share a YouTube lesson to Fretline (or paste its link); it plays in YouTube's own player inside the app
+- His words written out as he says them (YouTube captions, word by word for auto captions), full transcript (tap a line to jump), chapters, −5 s / +5 s, 1× / 0.75× / 0.5×
+- Remembers where you stopped; turn the phone sideways for a full-screen video
+- Lesson details and captions are read natively with NewPipeExtractor (no API key); `.github/workflows/newpipe-check.yml` proposes NewPipe updates weekly
+
 **v0.1 – Tuner**
 
 - Auto (finds the string) or Pick a string (for strings that are way off)

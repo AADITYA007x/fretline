@@ -50,7 +50,13 @@
 
       <main class="views">
         <section id="view-lessons" class="view" hidden>
-          <div class="lessons-empty">
+          <form id="add-lesson-form" class="add-lesson" autocomplete="off">
+            <input id="lesson-link" type="text" inputmode="url" placeholder="Paste a YouTube lesson link" aria-label="YouTube lesson link" />
+            <button type="submit" class="btn-primary">Add</button>
+          </form>
+          <p id="lesson-error" class="form-error" hidden></p>
+          <div id="lesson-list" class="lesson-list"></div>
+          <div id="lessons-empty" class="lessons-empty">
             <svg class="lessons-art" viewBox="0 0 240 120" aria-hidden="true">
               <g class="tab-lines"><path d="M8 20h224M8 36h224M8 52h224M8 68h224M8 84h224M8 100h224" /></g>
               <g class="tab-nums">
@@ -58,13 +64,57 @@
                 <text x="148" y="58">2</text><text x="184" y="26">3</text>
               </g>
             </svg>
-            <h2>Lessons come next</h2>
-            <p>
-              In the next update you'll share a YouTube lesson to Fretline and watch it here, with a tab strip under the
-              video that follows what he plays.
-            </p>
-            <p class="muted">For now, the tuner is ready.</p>
-            <button id="go-tuner" class="btn-secondary">Open the tuner</button>
+            <h2>Add your first lesson</h2>
+            <p>In the YouTube app, tap <b>Share</b> on a lesson and pick <b>Fretline</b>. Or paste its link above.</p>
+            <p class="muted">It plays here with his words written out as he talks. The live tab strip comes in the next update.</p>
+          </div>
+        </section>
+
+        <section id="view-lesson" class="view lesson-view" hidden>
+          <div class="lesson-top">
+            <button id="lesson-back" class="icon-btn" aria-label="Back to lessons">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
+            </button>
+            <div class="lesson-head">
+              <div id="lesson-title" class="lesson-title"></div>
+              <div id="lesson-uploader" class="lesson-uploader"></div>
+            </div>
+          </div>
+          <div class="video-frame"><div id="lesson-video" class="lesson-video"></div></div>
+          <p id="video-error" class="form-error video-error" hidden></p>
+
+          <div id="saying" class="saying" aria-live="off"><span id="saying-text" class="muted">Loading his words…</span></div>
+
+          <div class="seek-row">
+            <span id="lesson-time" class="time">0:00</span>
+            <div class="seek-wrap">
+              <input id="lesson-seek" type="range" min="0" max="1000" value="0" step="1" aria-label="Position in the lesson" />
+              <div id="chapter-ticks" class="chapter-ticks" aria-hidden="true"></div>
+            </div>
+            <span id="lesson-duration" class="time">0:00</span>
+          </div>
+          <div class="lesson-controls">
+            <button id="lesson-back5" class="ctl" aria-label="Back 5 seconds">−5s</button>
+            <button id="lesson-play" class="ctl play" aria-label="Play">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path class="i-play" d="M8 5v14l11-7z" /><path class="i-pause" d="M7 5h4v14H7zM13 5h4v14h-4z" /></svg>
+            </button>
+            <button id="lesson-fwd5" class="ctl" aria-label="Forward 5 seconds">+5s</button>
+            <button id="lesson-speed" class="ctl speed" aria-label="Speed">1×</button>
+          </div>
+
+          <div class="seg lesson-tabs" role="tablist">
+            <button type="button" role="tab" data-pane="transcript" aria-selected="true">What he says</button>
+            <button type="button" role="tab" data-pane="chapters" aria-selected="false">Chapters</button>
+          </div>
+          <div id="pane-transcript" class="pane">
+            <div class="pane-head">
+              <span id="caption-name" class="muted"></span>
+              <button id="caption-switch" class="row-action" hidden>Change</button>
+            </div>
+            <div id="transcript" class="transcript"></div>
+          </div>
+          <div id="pane-chapters" class="pane" hidden>
+            <div id="chapter-list" class="chapter-list"></div>
           </div>
         </section>
 

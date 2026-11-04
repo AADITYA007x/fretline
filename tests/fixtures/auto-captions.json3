@@ -1,0 +1,7 @@
+{"wireMagic":"pb3","events":[
+{"tStartMs":0,"dDurationMs":2000,"id":1,"wpWinPosId":1,"wsWinStyleId":1},
+{"tStartMs":1360,"dDurationMs":2470,"wWinId":1,"segs":[{"utf8":"hey","acAsrConf":0},{"utf8":" guys","tOffsetMs":320,"acAsrConf":0},{"utf8":" welcome","tOffsetMs":560,"acAsrConf":0},{"utf8":" back","tOffsetMs":880,"acAsrConf":0}]},
+{"tStartMs":3820,"dDurationMs":10,"wWinId":1,"aAppend":1,"segs":[{"utf8":"\n"}]},
+{"tStartMs":3830,"dDurationMs":2600,"wWinId":1,"segs":[{"utf8":"so","acAsrConf":0},{"utf8":" third","tOffsetMs":400,"acAsrConf":0},{"utf8":" string","tOffsetMs":700,"acAsrConf":0},{"utf8":" second","tOffsetMs":1000,"acAsrConf":0},{"utf8":" fret","tOffsetMs":1300,"acAsrConf":0}]},
+{"tStartMs":8200,"dDurationMs":1800,"wWinId":1,"segs":[{"utf8":"an","acAsrConf":0},{"utf8":" egg","tOffsetMs":200,"acAsrConf":0},{"utf8":" hammer","tOffsetMs":400,"acAsrConf":0},{"utf8":" on","tOffsetMs":700,"acAsrConf":0}]}
+]}

@@ -131,3 +131,91 @@ export async function fakeMic(page: Page, opts: { deny?: boolean; buds?: boolean
 export async function shot(page: Page, name: string, project: string): Promise<void> {
   await page.screenshot({ path: `test-results/shots/${project}-${name}.png` });
 }
+
+/**
+ * YouTube's IFrame player stand-in: a grey box with a clock. `blocked`
+ * makes it fail like a video that can't be embedded.
+ */
+export async function fakeYouTube(page: Page, opts: { blocked?: string[] } = {}): Promise<void> {
+  const blocked = JSON.stringify(opts.blocked ?? []);
+  await page.route("https://www.youtube.com/iframe_api", (route) =>
+    route.fulfill({
+      contentType: "text/javascript",
+      body: `(() => {
+        const BLOCKED = ${blocked};
+        class Player {
+          constructor(el, o) {
+            this.o = o; this.t = (o.playerVars && o.playerVars.start) || 0; this.rate = 1; this.state = 5; this.dur = 300;
+            const box = document.createElement("div");
+            box.className = "fake-yt"; box.style.cssText = "position:absolute;inset:0;background:#333;color:#ddd;display:grid;place-items:center;font:14px monospace";
+            box.textContent = "video " + o.videoId;
+            el.replaceWith(box); this.box = box; window.__yt = this;
+            setTimeout(() => {
+              o.events.onReady && o.events.onReady();
+              if (BLOCKED.includes(o.videoId)) o.events.onError && o.events.onError({ data: 150 });
+            }, 30);
+            this.timer = setInterval(() => {
+              if (this.state === 1) { this.t += 0.1 * this.rate; if (this.t >= this.dur) { this.t = this.dur; this.set(0); } }
+              this.box.textContent = "video " + o.videoId + " @ " + this.t.toFixed(1);
+            }, 100);
+          }
+          set(s) { this.state = s; this.o.events.onStateChange && this.o.events.onStateChange({ data: s }); }
+          playVideo() { this.set(1); }
+          pauseVideo() { this.set(2); }
+          seekTo(s) { this.t = Math.max(0, Math.min(this.dur, s)); }
+          getCurrentTime() { return this.t; }
+          getDuration() { return this.dur; }
+          getPlayerState() { return this.state; }
+          setPlaybackRate(r) { this.rate = r; }
+          destroy() { clearInterval(this.timer); }
+        }
+        window.YT = { Player };
+        setTimeout(() => window.onYouTubeIframeAPIReady && window.onYouTubeIframeAPIReady(), 10);
+      })();`,
+    }),
+  );
+  await page.route("https://i.ytimg.com/**", (route) => route.fulfill({ status: 404, body: "" }));
+}
+
+/** The phone app's lesson reader, with a lesson that has chapters and captions. */
+export async function fakeLessonInfo(page: Page, captionsJson3: string): Promise<void> {
+  await page.addInitScript((json3) => {
+    const lessons: Record<string, unknown> = {
+      ZeeuvgrDUeQ: {
+        videoId: "ZeeuvgrDUeQ",
+        title: "Neon intro, fingerstyle lesson",
+        uploader: "Let's Play Guitar",
+        durationSec: 300,
+        thumbnail: null,
+        chapters: [
+          { title: "Intro", startSec: 0 },
+          { title: "Riff part 1", startSec: 60 },
+          { title: "Full play-through", startSec: 240 },
+        ],
+        captions: [
+          { lang: "en", name: "English (auto-generated)", auto: true, url: "https://www.youtube.com/api/timedtext?v=ZeeuvgrDUeQ&lang=en&kind=asr" },
+          { lang: "hi", name: "Hindi", auto: false, url: "https://www.youtube.com/api/timedtext?v=ZeeuvgrDUeQ&lang=hi" },
+        ],
+      },
+      "2Lq784V-KPw": {
+        videoId: "2Lq784V-KPw",
+        title: "No captions here",
+        uploader: "Fingerstyle Club",
+        durationSec: 120,
+        thumbnail: null,
+        chapters: [],
+        captions: [],
+      },
+    };
+    const hindi = JSON.stringify({ events: [{ tStartMs: 1000, dDurationMs: 3000, segs: [{ utf8: "नमस्ते दोस्तों" }] }] });
+    (window as unknown as { __fretlineFakeLessonInfo: unknown }).__fretlineFakeLessonInfo = {
+      info: async ({ videoId }: { videoId: string }) => {
+        await new Promise((r) => setTimeout(r, 150));
+        const l = lessons[videoId];
+        if (!l) throw new Error("Video unavailable");
+        return l;
+      },
+      fetchText: async ({ url }: { url: string }) => ({ text: url.includes("lang=hi") ? hindi : json3 }),
+    };
+  }, captionsJson3);
+}
