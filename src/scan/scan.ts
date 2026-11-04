@@ -3,10 +3,10 @@
 // read each tab page → timed notes → delete the video.
 import type { TabNote } from "../tabs/tab";
 import { tabScan, type ScanProgress } from "./native";
+import { notesFromArea } from "./glyphs";
 import {
   bytes,
   changedCells,
-  charsToNotes,
   columns,
   commonStaff,
   findPages,
@@ -46,15 +46,11 @@ export async function stopScan(videoId: string): Promise<void> {
   await tabScan.cancel({ videoId }).catch(() => {});
 }
 
-/**
- * How to read the tab: normal-size digits as one picture enlarged 2× (what
- * reads well); small digits enlarged to about 30 px a line and read in
- * pieces about 1600 px wide, so the reader doesn't shrink them again.
- */
-export function ocrPlan(spacingPx: number, width: number): { scale: number; tiles: number } {
-  const want = Math.min(4, 30 / Math.max(1, spacingPx));
-  if (want <= 2) return { scale: 2, tiles: 1 };
-  return { scale: want, tiles: Math.min(8, Math.ceil((width * want) / 1600)) };
+/** Bytes to base64 (for sending a picture to the phone side). */
+function b64(a: Uint8Array): string {
+  let s = "";
+  for (let i = 0; i < a.length; i += 0x8000) s += String.fromCharCode(...a.subarray(i, i + 0x8000));
+  return btoa(s);
 }
 
 /** Pages with the same picture are read once. */
@@ -63,7 +59,7 @@ function similar(a: Uint8Array, b: Uint8Array): boolean {
 }
 
 /** Bump when the reader gets better, so lessons read before can be read again. */
-export const SCAN_VERSION = 4;
+export const SCAN_VERSION = 5;
 
 export async function scanLesson(videoId: string, onStep: (s: Step) => void, maxHeight = 720): Promise<ScanResult> {
   if (running) throw new Error("Already reading another lesson's video.");
@@ -141,26 +137,35 @@ export async function scanLesson(videoId: string, onStep: (s: Step) => void, max
       video: { width: ov.width, height: ov.height },
       rect,
       lines,
-      plan: ocrPlan(staff.spacing * scale, rect.w),
       pages: pages.map((p, k) => ({ start: p.start, end: p.end, same: sameAs[k], cursor: p.cursor })),
-      readings: [] as { t: number; image?: string; chars: unknown[] }[],
+      readings: [] as { t: number; image?: string; chars: unknown[]; notes?: ScreenNote[] }[],
       merged: [] as ScreenNote[][],
     };
-    // Each page is read at three moments and the readings compared.
+    // Each page is read at three moments and the readings compared. The
+    // digits are found here and read by the phone laid out in a neat row.
     const SPOTS = [0.3, 0.5, 0.72];
     const tol = staff.spacing * scale * 0.6;
     const read: { notes: ScreenNote[]; image: string }[] = [];
-    const plan = ocrPlan(staff.spacing * scale, rect.w);
     for (let i = 0; i < unique.length; i += 4) {
       const batch = unique.slice(i, i + 4);
       onStep({ phase: "read", fraction: i / unique.length, detail: `${i} of ${unique.length} tab pages` });
       const times = batch.flatMap((p) => SPOTS.map((f) => p.start + f * (p.end - p.start)));
-      const { results } = await tabScan.ocr({ videoId, rect, lines, times, ...plan });
-      for (const r of results) report.readings.push({ t: r.t, image: r.image?.split("/").pop(), chars: r.chars });
+      const { results } = await tabScan.areas({ videoId, rect, times });
+      const found = new Map<number, ScreenNote[]>();
+      for (const r of results) {
+        const seen: unknown[] = [];
+        const notes = await notesFromArea({ gray: bytes(r.gray), w: r.w, h: r.h, x: r.x, y: r.y }, lines, async (lay) => {
+          const { chars } = await tabScan.read({ gray: b64(lay.gray), w: lay.w, h: lay.h });
+          seen.push(...chars);
+          return chars;
+        });
+        found.set(r.t, notes);
+        report.readings.push({ t: r.t, image: r.image?.split("/").pop(), chars: seen, notes });
+      }
       batch.forEach((_, k) => {
         const mine = times.slice(k * 3, k * 3 + 3).map((t) => results.find((r) => Math.abs(r.t - t) < 0.001));
         const notes = mergeReadings(
-          mine.map((r) => (r ? charsToNotes(r.chars, lines) : [])),
+          mine.map((r) => (r ? (found.get(r.t) ?? []) : [])),
           tol,
         );
         read.push({ notes, image: (mine[1] ?? mine.find(Boolean))?.image ?? "" });

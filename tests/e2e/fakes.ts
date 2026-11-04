@@ -251,11 +251,11 @@ export async function fakeLessonInfo(page: Page, captionsJson3: string): Promise
 /**
  * The phone's tab scanner, playing back a real frame (Love Story) for the
  * overview, a made-up pass through the video (one tab page shown from 2 s
- * to 12 s with the cursor moving across), and real OCR characters.
+ * to 12 s with the cursor moving across), the real tab area, and a stand-in reader.
  */
-export async function fakeTabScan(page: Page, overviewB64: string, ocr: unknown, opts: { noTab?: boolean } = {}): Promise<void> {
+export async function fakeTabScan(page: Page, overviewB64: string, _ocr: unknown, opts: { noTab?: boolean } = {}): Promise<void> {
   await page.addInitScript(
-    ({ gray, ocr, noTab }) => {
+    ({ gray, noTab }) => {
       const listeners: Record<string, ((x: unknown) => void)[]> = {};
       const emit = (ev: string, x: unknown) => (listeners[ev] ?? []).forEach((f) => f(x));
       const b64 = (arr: Uint8Array) => btoa(String.fromCharCode(...arr));
@@ -278,7 +278,7 @@ export async function fakeTabScan(page: Page, overviewB64: string, ocr: unknown,
         overview: async () => {
           w.__scanCalls.push("overview");
           const g = noTab ? btoa("Z".repeat(640 * 360)) : gray; // flat grey, no tab
-          return { width: 1080, height: 607, durationSec: 14, frames: [0, 1, 2].map((k) => ({ t: 3 + k * 3, w: 640, h: 360, gray: g })) };
+          return { width: 640, height: 360, durationSec: 14, frames: [0, 1, 2].map((k) => ({ t: 3 + k * 3, w: 640, h: 360, gray: g })) };
         },
         features: async ({ videoId }: { videoId: string }) => {
           w.__scanCalls.push("features");
@@ -296,9 +296,52 @@ export async function fakeTabScan(page: Page, overviewB64: string, ocr: unknown,
           }
           for (let i = 0; i < frames.length; i += 20) emit("features", { videoId, frames: frames.slice(i, i + 20) });
         },
-        ocr: async ({ times }: { times: number[] }) => {
-          w.__scanCalls.push("ocr");
-          return { results: times.map((t) => ({ t, chars: (ocr as { chars: unknown[] }).chars, image: "/data/fake/tab.jpg" })) };
+        // The tab area of the real frame at each time.
+        areas: async ({ times, rect }: { times: number[]; rect: { x: number; y: number; w: number; h: number } }) => {
+          w.__scanCalls.push("areas");
+          const all = Uint8Array.from(atob(gray), (c) => c.charCodeAt(0));
+          const area = new Uint8Array(rect.w * rect.h);
+          for (let y = 0; y < rect.h; y++) area.set(all.subarray((rect.y + y) * 640 + rect.x, (rect.y + y) * 640 + rect.x + rect.w), y * rect.w);
+          let s = "";
+          for (const v of area) s += String.fromCharCode(v);
+          return { results: times.map((t) => ({ t, x: rect.x, y: rect.y, w: rect.w, h: rect.h, gray: btoa(s), image: "/data/fake/tab.jpg" })) };
+        },
+        // Stands in for ML Kit: every mark in the neat row reads as a digit.
+        read: async ({ gray: g, w: lw, h: lh }: { gray: string; w: number; h: number }) => {
+          const px = Uint8Array.from(atob(g), (c) => c.charCodeAt(0));
+          const chars: unknown[] = [];
+          const ink = (x: number, y0: number, y1: number) => {
+            for (let y = y0; y < y1; y++) if (px[y * lw + x] < 128) return true;
+            return false;
+          };
+          // rows of ink, then runs of inked columns within each row
+          let y = 0;
+          while (y < lh) {
+            let rowInk = false;
+            for (let x = 0; x < lw && !rowInk; x++) rowInk = px[y * lw + x] < 128;
+            if (!rowInk) {
+              y++;
+              continue;
+            }
+            const y0 = y;
+            while (y < lh) {
+              let any = false;
+              for (let x = 0; x < lw && !any; x++) any = px[y * lw + x] < 128;
+              if (!any) break;
+              y++;
+            }
+            let x = 0;
+            while (x < lw) {
+              if (!ink(x, y0, y)) {
+                x++;
+                continue;
+              }
+              const x0 = x;
+              while (x < lw && ink(x, y0, y)) x++;
+              chars.push({ c: String((x0 + y0) % 9 + 1), x: x0, y: y0, w: x - x0, h: y - y0 });
+            }
+          }
+          return { chars };
         },
         cancel: async () => {},
         deleteVideo: async () => {
@@ -312,6 +355,6 @@ export async function fakeTabScan(page: Page, overviewB64: string, ocr: unknown,
         },
       };
     },
-    { gray: overviewB64, ocr, noTab: opts.noTab ?? false },
+    { gray: overviewB64, noTab: opts.noTab ?? false },
   );
 }

@@ -244,7 +244,7 @@ test.describe("reading tab from the video", () => {
     await page.click("#scan-btn");
     await expect(page.locator("#scan-row")).toBeVisible();
     await expect(page.locator("#toast")).toContainText(/Read \d+ notes from the video's tab/, { timeout: 15_000 });
-    expect(await page.evaluate(() => (window as any).__scanCalls)).toEqual(["download", "overview", "features", "ocr", "deleteVideo"]);
+    expect(await page.evaluate(() => (window as any).__scanCalls)).toEqual(["download", "overview", "features", "areas", "deleteVideo"]);
     await expect(page.locator("#scan-btn")).toBeHidden();
 
     await page.waitForFunction(() => (window as any).__yt);

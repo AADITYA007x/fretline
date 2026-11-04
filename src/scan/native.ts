@@ -31,9 +31,10 @@ export interface TabScanPlugin {
     frames: { t: number; w: number; h: number; gray: string }[];
   }>;
   features(o: { videoId: string; rect: Rect; fps: number; cols: number }): Promise<void>;
-  ocr(o: { videoId: string; rect: Rect; lines: number[]; times: number[]; scale: number; tiles?: number }): Promise<{
-    results: { t: number; chars: OcrChar[]; image: string }[];
+  areas(o: { videoId: string; rect: Rect; times: number[] }): Promise<{
+    results: { t: number; x: number; y: number; w: number; h: number; gray: string; image: string }[];
   }>;
+  read(o: { gray: string; w: number; h: number }): Promise<{ chars: OcrChar[] }>;
   saveReport(o: { videoId: string; json: string }): Promise<void>;
   shareReport(o: { videoId: string }): Promise<void>;
   addListener(event: "progress", fn: (p: ScanProgress) => void): Promise<PluginListenerHandle>;

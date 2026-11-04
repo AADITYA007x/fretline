@@ -53,12 +53,13 @@ import org.schabi.newpipe.extractor.stream.VideoStream;
  *
  * The app's TypeScript does the thinking (where the tab is, when pages
  * change, where the cursor is); this side does the heavy lifting:
- *  - prepare/download: pick a video-only stream (1080p on Wi-Fi, 720p on mobile data) and fetch it
+ *  - prepare/download: pick a video-only stream (up to 720p) and fetch it
  *  - overview: a few frames as small grey pictures, to find the tab
  *  - features: decode the whole video once and, a few times a second,
  *    measure the tab area (brightness and blue/yellow per column, plus a
  *    tiny picture to spot page changes)
- *  - ocr: read the digits on chosen frames with ML Kit (on the phone,
+ *  - areas + read: the tab area at chosen moments (the app finds the digits
+ *    and lays them out in a neat row), read with ML Kit (on the phone,
  *    offline) and keep a small picture of each tab section
  */
 @CapacitorPlugin(name = "TabScan")
@@ -316,6 +317,113 @@ public class TabScanPlugin extends Plugin {
         //noinspection ResultOfMethodCallIgnored
         dir.delete();
         call.resolve();
+    }
+
+    /**
+     * The tab area at each requested time, as grey pixels (the app finds the
+     * digits in it), with a picture of each kept for the lesson.
+     */
+    @PluginMethod
+    public void areas(PluginCall call) {
+        String videoId = call.getString("videoId");
+        JSObject rect = call.getObject("rect");
+        JSArray times = call.getArray("times");
+        worker.execute(() -> {
+            MediaMetadataRetriever r = new MediaMetadataRetriever();
+            try {
+                r.setDataSource(videoFile(videoId).getAbsolutePath());
+                int rx = rect.getInteger("x", 0);
+                int ry = rect.getInteger("y", 0);
+                int rw = rect.getInteger("w", 0);
+                int rh = rect.getInteger("h", 0);
+                JSArray results = new JSArray();
+                for (int i = 0; i < times.length(); i++) {
+                    double t = times.getDouble(i);
+                    Bitmap frame = r.getFrameAtTime((long) (t * 1e6), MediaMetadataRetriever.OPTION_CLOSEST);
+                    if (frame == null) continue;
+                    int x = Math.max(0, Math.min(frame.getWidth() - 1, rx));
+                    int y = Math.max(0, Math.min(frame.getHeight() - 1, ry));
+                    int w = Math.max(1, Math.min(frame.getWidth() - x, rw));
+                    int h = Math.max(1, Math.min(frame.getHeight() - y, rh));
+                    Bitmap area = Bitmap.createBitmap(frame, x, y, w, h);
+                    File img = new File(imageDir(videoId), Math.round(t * 1000) + ".jpg");
+                    try (OutputStream os = new FileOutputStream(img)) {
+                        area.compress(Bitmap.CompressFormat.JPEG, 85, os);
+                    }
+                    JSObject res = new JSObject();
+                    res.put("t", t);
+                    res.put("x", x);
+                    res.put("y", y);
+                    res.put("w", w);
+                    res.put("h", h);
+                    res.put("gray", Base64.encodeToString(luma(area), Base64.NO_WRAP));
+                    res.put("image", img.getAbsolutePath());
+                    results.put(res);
+                    area.recycle();
+                    frame.recycle();
+                    progress(videoId, "read", i + 1, times.length());
+                }
+                JSObject out = new JSObject();
+                out.put("results", results);
+                call.resolve(out);
+            } catch (Exception e) {
+                Log.w(TAG, "areas", e);
+                call.reject(describe(e));
+            } finally {
+                try {
+                    r.release();
+                } catch (Exception ignored) {
+                    // already released
+                }
+            }
+        });
+    }
+
+    /** Read the text in a grey picture (the app's neat row of digits) with ML Kit. */
+    @PluginMethod
+    public void read(PluginCall call) {
+        String gray = call.getString("gray", "");
+        int w = call.getInt("w", 0);
+        int h = call.getInt("h", 0);
+        worker.execute(() -> {
+            try {
+                if (recognizer == null) recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
+                byte[] g = Base64.decode(gray, Base64.DEFAULT);
+                if (w <= 0 || h <= 0 || g.length < w * h) throw new IOException("Bad picture size");
+                int[] px = new int[w * h];
+                for (int i = 0; i < px.length; i++) {
+                    int v = g[i] & 0xff;
+                    px[i] = 0xff000000 | (v << 16) | (v << 8) | v;
+                }
+                Bitmap bmp = Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888);
+                Text text = Tasks.await(recognizer.process(InputImage.fromBitmap(bmp, 0)));
+                JSONArray chars = new JSONArray();
+                for (Text.TextBlock block : text.getTextBlocks()) {
+                    for (Text.Line line : block.getLines()) {
+                        for (Text.Element el : line.getElements()) {
+                            for (Text.Symbol sym : el.getSymbols()) {
+                                Rect bx = sym.getBoundingBox();
+                                if (bx == null) continue;
+                                JSONObject c = new JSONObject();
+                                c.put("c", sym.getText());
+                                c.put("x", bx.left);
+                                c.put("y", bx.top);
+                                c.put("w", bx.width());
+                                c.put("h", bx.height());
+                                chars.put(c);
+                            }
+                        }
+                    }
+                }
+                bmp.recycle();
+                JSObject out = new JSObject();
+                out.put("chars", chars);
+                call.resolve(out);
+            } catch (Exception e) {
+                Log.w(TAG, "read", e);
+                call.reject(describe(e));
+            }
+        });
     }
 
     /** Keep what the reader saw (characters per moment, pages, cursor) next to the pictures. */
@@ -633,159 +741,6 @@ public class TabScanPlugin extends Plugin {
         f.put("v", Base64.encodeToString(vb, Base64.NO_WRAP));
         f.put("m", Base64.encodeToString(mb, Base64.NO_WRAP));
         return f;
-    }
-
-    // --- OCR: read the digits on chosen frames -----------------------------------
-
-    /**
-     * For each requested time: the frame's tab area (rect), enlarged `scale`×,
-     * read by ML Kit. Returns every character with its box (in video pixels)
-     * and saves the area as a small JPEG for the app to show.
-     */
-    @PluginMethod
-    public void ocr(PluginCall call) {
-        String videoId = call.getString("videoId");
-        JSObject rect = call.getObject("rect");
-        JSArray times = call.getArray("times");
-        JSArray linesArg = call.getArray("lines");
-        double scale = call.getDouble("scale", 2.0);
-        int tiles = Math.max(1, Math.min(8, call.getInt("tiles", 1)));
-        worker.execute(() -> {
-            MediaMetadataRetriever r = new MediaMetadataRetriever();
-            try {
-                if (recognizer == null) recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
-                r.setDataSource(videoFile(videoId).getAbsolutePath());
-                int rx = rect.getInteger("x", 0);
-                int ry = rect.getInteger("y", 0);
-                int rw = rect.getInteger("w", 0);
-                int rh = rect.getInteger("h", 0);
-                JSArray results = new JSArray();
-                for (int i = 0; i < times.length(); i++) {
-                    double t = times.getDouble(i);
-                    Bitmap frame = r.getFrameAtTime((long) (t * 1e6), MediaMetadataRetriever.OPTION_CLOSEST);
-                    if (frame == null) continue;
-                    int x = Math.max(0, Math.min(frame.getWidth() - 1, rx));
-                    int y = Math.max(0, Math.min(frame.getHeight() - 1, ry));
-                    int w = Math.max(1, Math.min(frame.getWidth() - x, rw));
-                    int h = Math.max(1, Math.min(frame.getHeight() - y, rh));
-                    Bitmap area = Bitmap.createBitmap(frame, x, y, w, h);
-                    double[] lines = new double[6];
-                    for (int k = 0; k < 6 && linesArg != null && k < linesArg.length(); k++) lines[k] = linesArg.getDouble(k) - y;
-                    Bitmap cleaned = linesArg != null && linesArg.length() == 6 ? cleanTab(area, lines) : area;
-                    // Small digits: read the tab in a few overlapping pieces, each
-                    // enlarged, so the reader sees them big enough. A digit is kept
-                    // by the piece whose middle part it's in.
-                    JSONArray chars = new JSONArray();
-                    double spacing = linesArg != null && linesArg.length() == 6 ? (lines[5] - lines[0]) / 5.0 : h / 6.0;
-                    int pieceW = (int) Math.ceil((double) w / tiles);
-                    int overlap = (int) Math.round(spacing * 2);
-                    for (int k = 0; k < tiles; k++) {
-                        int core0 = k * pieceW;
-                        int core1 = Math.min(w, core0 + pieceW);
-                        if (core0 >= w) break;
-                        int a = Math.max(0, core0 - overlap);
-                        int b = Math.min(w, core1 + overlap);
-                        Bitmap piece = tiles == 1 ? cleaned : Bitmap.createBitmap(cleaned, a, 0, b - a, h);
-                        Bitmap big = Bitmap.createScaledBitmap(piece, (int) ((b - a) * scale), (int) (h * scale), true);
-                        Text text = Tasks.await(recognizer.process(InputImage.fromBitmap(big, 0)));
-                        for (Text.TextBlock block : text.getTextBlocks()) {
-                            for (Text.Line line : block.getLines()) {
-                                for (Text.Element el : line.getElements()) {
-                                    for (Text.Symbol sym : el.getSymbols()) {
-                                        Rect bx = sym.getBoundingBox();
-                                        if (bx == null) continue;
-                                        double cx = a + bx.exactCenterX() / scale;
-                                        if (tiles > 1 && (cx < core0 || cx >= core1)) continue;
-                                        JSONObject c = new JSONObject();
-                                        c.put("c", sym.getText());
-                                        c.put("x", x + a + bx.left / scale);
-                                        c.put("y", y + bx.top / scale);
-                                        c.put("w", bx.width() / scale);
-                                        c.put("h", bx.height() / scale);
-                                        c.put("conf", sym.getConfidence());
-                                        chars.put(c);
-                                    }
-                                }
-                            }
-                        }
-                        if (big != piece) big.recycle();
-                        if (piece != cleaned) piece.recycle();
-                    }
-                    File img = new File(imageDir(videoId), Math.round(t * 1000) + ".jpg");
-                    try (OutputStream os = new FileOutputStream(img)) {
-                        area.compress(Bitmap.CompressFormat.JPEG, 80, os);
-                    }
-                    JSObject res = new JSObject();
-                    res.put("t", t);
-                    res.put("chars", chars);
-                    res.put("image", img.getAbsolutePath());
-                    results.put(res);
-                    if (cleaned != area) cleaned.recycle();
-                    area.recycle();
-                    frame.recycle();
-                    progress(videoId, "read", i + 1, times.length());
-                }
-                JSObject out = new JSObject();
-                out.put("results", results);
-                call.resolve(out);
-            } catch (Exception e) {
-                Log.w(TAG, "ocr", e);
-                call.reject(describe(e));
-            } finally {
-                try {
-                    r.release();
-                } catch (Exception ignored) {
-                    // already released
-                }
-            }
-        });
-    }
-
-    /**
-     * Remove the staff lines and stems/bar lines (long thin runs) so only
-     * the digits are left for the text reader. Same as src/scan/clean.ts.
-     */
-    static Bitmap cleanTab(Bitmap area, double[] lines) {
-        int w = area.getWidth();
-        int h = area.getHeight();
-        byte[] lum = luma(area);
-        int[] g = new int[w * h];
-        for (int i = 0; i < g.length; i++) g[i] = lum[i] & 0xff;
-        int[] sorted = g.clone();
-        java.util.Arrays.sort(sorted);
-        int bg = sorted[(int) (sorted.length * 0.9)];
-        int dark = bg - 25;
-        double spacing = (lines[5] - lines[0]) / 5.0;
-        for (double ly : lines) {
-            for (int y = (int) Math.round(ly) - 2; y <= (int) Math.round(ly) + 2; y++) {
-                if (y < 0 || y >= h) continue;
-                int x = 0;
-                while (x < w) {
-                    if (g[y * w + x] >= dark) {
-                        x++;
-                        continue;
-                    }
-                    int s = x;
-                    while (x < w && g[y * w + x] < dark) x++;
-                    if (x - s > spacing * 1.5) for (int k = s; k < x; k++) g[y * w + k] = bg;
-                }
-            }
-        }
-        for (int x = 0; x < w; x++) {
-            int y = 0;
-            while (y < h) {
-                if (g[y * w + x] >= dark) {
-                    y++;
-                    continue;
-                }
-                int s = y;
-                while (y < h && g[y * w + x] < dark) y++;
-                if (y - s > spacing * 1.6) for (int k = s; k < y; k++) g[k * w + x] = bg;
-            }
-        }
-        int[] px = new int[w * h];
-        for (int i = 0; i < px.length; i++) px[i] = 0xff000000 | (g[i] << 16) | (g[i] << 8) | g[i];
-        return Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888);
     }
 
     private static String describe(Throwable e) {

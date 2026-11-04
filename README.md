@@ -16,6 +16,7 @@ After that, the app shows a banner when a new version is out.
 
 **v0.4 – Tab read from the video**
 
+- v0.4.5: new digit reader: the app finds each digit sitting on a staff line itself (skipping X's and slide marks), lays them out in a clean row and has ML Kit read that row, then puts the answers back; on Believer's pictures this finds ~4× more digits than reading the tab directly (`scripts/glyph-check.ts` replays a reading-details zip)
 - v0.4.4: cursor found inside a yellow-highlighted bar too (notes were piling up at the start/end of a page); each page read at three moments and the readings compared; **Send reading details** (under Picture) shares what the reader saw, for checking accuracy
 - v0.4.3: back to 720p (1080p made ML Kit read far fewer digits); small digits are read in enlarged overlapping pieces instead
 - v0.4.2: download pieces retried (fresh link if needed) after a dropped connection; if the 1080p video shows no tab, the 720p one is tried before giving up; frames shrunk in halving steps so thin tab lines survive

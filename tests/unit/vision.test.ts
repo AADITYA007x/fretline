@@ -155,18 +155,6 @@ describe("pages and cursor in real lesson videos", () => {
   });
 });
 
-import { ocrPlan } from "../../src/scan/scan";
-describe("how the tab is read", () => {
-  it("normal digits: one picture at 2× (as in v0.4.0)", () => {
-    expect(ocrPlan(16, 1260)).toEqual({ scale: 2, tiles: 1 });
-  });
-  it("small digits: enlarged more, in pieces about 1600 px wide", () => {
-    const p = ocrPlan(9, 1260);
-    expect(p.scale).toBeGreaterThan(3);
-    expect((1260 * p.scale) / p.tiles).toBeLessThanOrEqual(1600);
-  });
-});
-
 import { mergeReadings } from "../../src/scan/vision";
 describe("reading a page at three moments", () => {
   const n = (string: number, fret: number, x: number) => ({ string, fret, x });
