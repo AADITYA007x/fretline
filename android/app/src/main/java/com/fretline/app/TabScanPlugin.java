@@ -131,6 +131,24 @@ public class TabScanPlugin extends Plugin {
         return best;
     }
 
+    /**
+     * Shrink a frame without losing thin lines: halve step by step (each
+     * halving averages 2×2 pixels), then the last small step. One big
+     * bilinear step skips rows, and a 1080p tab's thin lines vanish.
+     */
+    static Bitmap shrink(Bitmap src, int w, int h) {
+        Bitmap cur = src;
+        while (cur.getWidth() >= w * 2 && cur.getHeight() >= h * 2) {
+            Bitmap half = Bitmap.createScaledBitmap(cur, cur.getWidth() / 2, cur.getHeight() / 2, true);
+            if (cur != src) cur.recycle();
+            cur = half;
+        }
+        if (cur.getWidth() == w && cur.getHeight() == h) return cur;
+        Bitmap out = Bitmap.createScaledBitmap(cur, w, h, true);
+        if (cur != src && cur != out) cur.recycle();
+        return out;
+    }
+
     @PluginMethod
     public void prepare(PluginCall call) {
         String videoId = call.getString("videoId");
@@ -178,7 +196,34 @@ public class TabScanPlugin extends Plugin {
                         long end = pos + CHUNK_BYTES - 1;
                         if (total > 0) end = Math.min(end, total - 1);
                         long wanted = end - pos + 1;
-                        long got = fetchRange(url, pos, end, rn++, out);
+                        // Each piece is fetched whole before it's written, so a
+                        // dropped connection can simply be tried again.
+                        java.io.ByteArrayOutputStream piece = new java.io.ByteArrayOutputStream((int) wanted);
+                        long got = -1;
+                        IOException last = null;
+                        for (int attempt = 0; attempt < 5 && got < 0; attempt++) {
+                            if (Boolean.TRUE.equals(cancelled.get(videoId))) throw new IOException("Stopped");
+                            if (attempt > 0) {
+                                Thread.sleep(1000L << Math.min(attempt - 1, 3));
+                                if (attempt == 2) {
+                                    // The link may have gone stale: ask YouTube for a fresh one.
+                                    picked.remove(videoId + "@" + maxHeight);
+                                    VideoStream fresh = pick(videoId, maxHeight);
+                                    ItagItem fi = fresh.getItagItem();
+                                    long ft = fi != null ? fi.getContentLength() : -1;
+                                    if (ft == total) url = fresh.getContent();
+                                }
+                            }
+                            piece.reset();
+                            try {
+                                got = fetchRange(url, pos, end, rn++, piece);
+                            } catch (IOException e) {
+                                last = e;
+                                Log.w(TAG, "download piece at " + pos + " failed (try " + (attempt + 1) + ")", e);
+                            }
+                        }
+                        if (got < 0) throw last != null ? last : new IOException("Download failed");
+                        piece.writeTo(out);
                         pos += got;
                         long now = System.currentTimeMillis();
                         if (now - lastEvent > 400) {
@@ -303,7 +348,7 @@ public class TabScanPlugin extends Plugin {
                     if (b == null) continue;
                     int w = Math.min(width, b.getWidth());
                     int h = Math.round((float) b.getHeight() * w / b.getWidth());
-                    Bitmap small = Bitmap.createScaledBitmap(b, w, h, true);
+                    Bitmap small = shrink(b, w, h);
                     JSObject f = new JSObject();
                     f.put("t", t / 1e6);
                     f.put("w", w);

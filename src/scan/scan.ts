@@ -79,10 +79,30 @@ export async function scanLesson(videoId: string, onStep: (s: Step) => void, max
     await tabScan.download({ videoId, maxHeight });
 
     // Where's the tab? Look at a spread of frames.
-    const ov = await tabScan.overview({ videoId, count: 16, width: 640 });
-    const staffs = ov.frames.map((f) => findStaff(bytes(f.gray), f.w, f.h));
-    const staff = commonStaff(staffs);
-    if (!staff) return { notes: [], pages: [], none: "No tab shown on screen in this video." };
+    const look = async () => {
+      let ov = await tabScan.overview({ videoId, count: 16, width: 640 });
+      let staff = ov.frames.length ? commonStaff(ov.frames.map((f) => findStaff(bytes(f.gray), f.w, f.h))) : null;
+      // In a big (1080p) video, thin tab lines can fade out when shrunk that
+      // far: look again at half size.
+      if (!staff && ov.width > 1300) {
+        ov = await tabScan.overview({ videoId, count: 16, width: Math.round(ov.width / 2) });
+        staff = ov.frames.length ? commonStaff(ov.frames.map((f) => findStaff(bytes(f.gray), f.w, f.h))) : null;
+      }
+      return { ov, staff };
+    };
+    let { ov, staff } = await look();
+    // Still nothing in the big picture (or the phone couldn't open it):
+    // try the 720p one before giving up.
+    if (!staff && maxHeight > 720) {
+      await tabScan.deleteVideo({ videoId });
+      onStep({ phase: "download", fraction: 0, detail: "trying the smaller video" });
+      await tabScan.download({ videoId, maxHeight: 720 });
+      ({ ov, staff } = await look());
+    }
+    if (!staff) {
+      const none = ov.frames.length ? "No tab shown on screen in this video." : "Couldn't open the downloaded video on this phone.";
+      return { notes: [], pages: [], none };
+    }
     const scale = ov.width / ov.frames[0].w;
     const rect = staffRect(staff, scale, ov.width, ov.height);
     const lines = staff.lines.map((y) => y * scale);

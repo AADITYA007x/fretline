@@ -33,7 +33,7 @@ export function renderScanButton(): void {
   const busy = scanning() !== null;
   const old = !!screen?.notes.length && (screen.v ?? 1) < SCAN_VERSION;
   $("scan-btn").hidden = !id || busy || (!!screen?.notes.length && !old);
-  $("scan-btn").textContent = old ? "Read again (better)" : "Read video tab";
+  $("scan-btn").textContent = old ? "Read again" : "Read video tab";
   $("scan-row").hidden = !busy || scanning() !== id;
 }
 

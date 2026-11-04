@@ -294,7 +294,7 @@ test.describe("reading tab from the video", () => {
     await page.click('.tab[data-view="lessons"]');
     await page.fill("#lesson-link", "2Lq784V-KPw");
     await page.click('#add-lesson-form button[type="submit"]');
-    await expect(page.locator("#scan-btn")).toHaveText("Read again (better)");
+    await expect(page.locator("#scan-btn")).toHaveText("Read again");
     await page.click("#scan-btn");
     await expect(page.locator("#toast")).toContainText(/Read \d+ notes/, { timeout: 15_000 });
     await expect(page.locator("#scan-btn")).toBeHidden();
@@ -312,6 +312,10 @@ test.describe("reading tab from the video", () => {
     await page.click("#scan-btn");
     await expect(page.locator("#toast")).toHaveText("No tab shown on screen in this video.", { timeout: 10_000 });
     await expect(page.locator(".strip-empty")).toContainText("No tab shown on screen in this video.");
-    expect(await page.evaluate(() => (window as any).__scanCalls)).toContain("deleteVideo");
+    const calls: string[] = await page.evaluate(() => (window as any).__scanCalls);
+    expect(calls).toContain("deleteVideo");
+    // Looked at the 1080p video, then the 720p one, before giving up.
+    expect(calls.filter((c) => c === "download").length).toBe(2);
+    expect(await page.evaluate(() => (window as any).__scanHeight)).toBe(720);
   });
 });
