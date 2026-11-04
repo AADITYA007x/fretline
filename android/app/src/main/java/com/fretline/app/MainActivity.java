@@ -14,6 +14,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         // Local plugins must be registered before the bridge is created.
         registerPlugin(LessonInfoPlugin.class);
+        registerPlugin(TabScanPlugin.class);
         super.onCreate(savedInstanceState);
         handleShare(getIntent());
 
