@@ -20,6 +20,15 @@ export interface PluckOptions {
   /** White noise level relative to the tone. */
   noise?: number;
   seed?: number;
+  /** A pick attack starts the note sharp by this much, settling over ~0.15 s. */
+  glideCents?: number;
+  /** Phone mics lose bass: a 2nd-order low cut at this frequency. */
+  lowCutHz?: number;
+}
+
+/** What a tuner should show: the first partial once the attack has settled. */
+export function firstPartial(o: Pick<PluckOptions, "freq" | "inharmonicity">): number {
+  return o.freq * Math.sqrt(1 + (o.inharmonicity ?? 0.00008));
 }
 
 export function pluck(o: PluckOptions): Float32Array {
@@ -34,10 +43,18 @@ export function pluck(o: PluckOptions): Float32Array {
     const f = k * o.freq * Math.sqrt(1 + B * k * k);
     if (f > o.sampleRate / 2) break;
     const decay = 1.2 + 0.6 * k; // higher partials die faster
-    const w = (2 * Math.PI * f) / o.sampleRate;
+    let amp = harmonics[h];
+    if (o.lowCutHz) {
+      const r = (f / o.lowCutHz) ** 2;
+      amp *= r / Math.sqrt(1 + r * r);
+    }
+    const glide = o.glideCents ?? 0;
+    let phase = phases[h];
     for (let i = 0; i < n; i++) {
       const t = i / o.sampleRate;
-      out[i] += harmonics[h] * Math.exp(-decay * t) * Math.sin(w * i + phases[h]);
+      const fi = glide ? f * Math.pow(2, (glide * Math.exp(-t / 0.15)) / 1200) : f;
+      phase += (2 * Math.PI * fi) / o.sampleRate;
+      out[i] += amp * Math.exp(-decay * t) * Math.sin(phase);
     }
   }
   // Pick attack: a short click of noise at the start.
@@ -53,4 +70,12 @@ export function pluck(o: PluckOptions): Float32Array {
 export function frameAt(buf: Float32Array, sampleRate: number, seconds: number, size: number): Float32Array {
   const start = Math.round(seconds * sampleRate);
   return buf.slice(start, start + size);
+}
+
+/** Mix signals (e.g. a played string plus other strings ringing along). */
+export function mix(...parts: [Float32Array, number][]): Float32Array {
+  const n = Math.min(...parts.map(([p]) => p.length));
+  const out = new Float32Array(n);
+  for (const [p, gain] of parts) for (let i = 0; i < n; i++) out[i] += p[i] * gain;
+  return out;
 }

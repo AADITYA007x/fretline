@@ -23,3 +23,27 @@ group("describe", () => {
     expect(describe(-180, "C#2", "D2").text).toBe("That's C#2. Tune up to D2");
   });
 });
+
+import { StringPicker } from "../../src/tuner/logic";
+
+group("StringPicker", () => {
+  it("ignores a stray reading, follows a real change", () => {
+    const p = new StringPicker();
+    const e2 = 82.4;
+    const e4 = 329.6;
+    expect(p.pick(e4, standard, 440)).toBe(5);
+    expect(p.pick(e2, standard, 440)).toBe(5); // one odd reading
+    expect(p.pick(e4, standard, 440)).toBe(5);
+    p.pick(e2, standard, 440);
+    p.pick(e2, standard, 440);
+    expect(p.pick(e2, standard, 440)).toBe(0); // three in a row: switched
+  });
+});
+
+group("describe hysteresis", () => {
+  it("stays in tune for small wobbles", () => {
+    expect(describe(4, "E2", "E2").inTune).toBe(false);
+    expect(describe(4, "E2", "E2", true).inTune).toBe(true);
+    expect(describe(5, "E2", "E2", true).inTune).toBe(false);
+  });
+});

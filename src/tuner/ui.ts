@@ -5,7 +5,7 @@ import { $, escapeHtml, storage } from "../utils";
 import { closeSheet, isSheetOpen, openSheet } from "../ui/sheets";
 import { currentView } from "../ui/nav";
 import * as engine from "./engine";
-import { IN_TUNE, describe, nearestString } from "./logic";
+import { IN_TUNE, StringPicker, describe } from "./logic";
 import { centsOff, freqToMidi, midiToFreq, midiToName, midiToNote, noteToMidi } from "./pitch";
 import {
   INSTRUMENTS,
@@ -39,6 +39,8 @@ let picked = 0;
 let tuned = new Set<number>();
 let inTuneSince = 0;
 let inTuneString = -1;
+let wasInTune = -1; // string shown as in tune on the last reading
+const picker = new StringPicker();
 let toneString = -1;
 let wakeLock: { release(): Promise<void> } | null = null;
 
@@ -179,16 +181,19 @@ function onReading(r: engine.Reading | null): void {
   if (mode === "tone") return;
   if (!r) {
     inTuneSince = 0;
+    wasInTune = -1;
+    picker.reset();
     showIdle();
     return;
   }
   const a4 = getA4();
-  const i = mode === "manual" ? picked : nearestString(r.freq, tuning, a4);
+  const i = mode === "manual" ? picked : picker.pick(r.freq, tuning, a4);
   const target = stringFreq(i);
   const cents = centsOff(r.freq, target);
   const tm = noteToMidi(tuning.strings[i]);
   const playing = midiToNote(freqToMidi(r.freq, a4));
-  const d = describe(cents, playing, midiToNote(tm));
+  const d = describe(cents, playing, midiToNote(tm), wasInTune === i);
+  wasInTune = d.inTune ? i : -1;
   setReadout(d.inTune ? "in" : "off", midiToName(tm), String(Math.floor(tm / 12) - 1), d.text, cents);
 
   const now = performance.now();

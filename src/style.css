@@ -407,7 +407,7 @@ html.entry .app {
 
 .gauge {
   width: 100%;
-  max-width: 340px;
+  max-width: 300px;
   overflow: visible;
 }
 
@@ -497,7 +497,7 @@ html.entry .app {
    played shimmers; tuned ones get a pearl dot at the end. */
 .strings {
   display: grid;
-  margin: 16px 0 4px;
+  margin: 10px 0 4px;
 }
 
 .string {
@@ -506,7 +506,7 @@ html.entry .app {
   grid-template-columns: 40px 1fr 28px;
   align-items: center;
   gap: 8px;
-  height: 42px;
+  height: 38px;
   padding: 0 8px 0 0;
   border: 0;
   border-radius: 10px;
@@ -632,7 +632,7 @@ html.entry .app {
 }
 
 .mode-hint {
-  margin: 8px 2px 12px;
+  margin: 6px 2px 10px;
   min-height: 21px;
   font-size: 14px;
   color: var(--bone-dim);

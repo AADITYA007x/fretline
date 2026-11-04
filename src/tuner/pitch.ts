@@ -106,12 +106,13 @@ function crossCorrelate(x: Float32Array, window: number, maxLag: number): Float6
 }
 
 /**
- * Samples to analyse at once: about three periods of the lowest note we
- * listen for (a power of two, for the audio analyser).
+ * Samples to analyse at once: about six periods of the lowest note we
+ * listen for (a power of two, for the audio analyser). Each half must still
+ * hold three periods for the spectrum to separate the partials.
  */
 export function frameSizeFor(minFreq: number, sampleRate: number): number {
-  let size = 2048;
-  while (size < (3 * sampleRate) / minFreq && size < 16384) size *= 2;
+  let size = 4096;
+  while (size < (6 * sampleRate) / minFreq && size < 16384) size *= 2;
   return size;
 }
 
@@ -219,9 +220,149 @@ export function detectPitch(buf: Float32Array, opts: DetectOptions): PitchResult
     }
   }
 
-  const freq = opts.sampleRate / better;
+  let freq = opts.sampleRate / better;
+  const clarity = Math.max(0, Math.min(1, 1 - d[tau]));
+
+  // The period above blends all the partials, and a guitar's upper partials
+  // run sharp (stiff strings), so it reads a few cents high. Other tuners
+  // show the fundamental, so measure that partial exactly from the spectrum.
+  const spec = spectrumOf(buf);
+  freq = fixSubharmonic(spec, freq, opts.sampleRate, opts.maxFreq);
+  const exact = measureFundamental(spec, freq, opts.sampleRate);
+  if (exact && Math.abs(centsOff(exact, freq)) < 35) freq = exact;
+
   if (freq < opts.minFreq * 0.9 || freq > opts.maxFreq * 1.1) return null;
-  return { freq, clarity: Math.max(0, Math.min(1, 1 - d[tau])) };
+  return { freq, clarity };
+}
+
+// --- Spectrum: exact partial frequencies ------------------------------------------
+
+/**
+ * Two Hann-windowed spectra of the buffer's halves (A = first half,
+ * B = second half). Comparing their phases gives a partial's frequency far
+ * more precisely than the bin spacing (the "phase vocoder" trick).
+ */
+interface Spectrum {
+  size: number;
+  hop: number;
+  reA: Float64Array;
+  imA: Float64Array;
+  reB: Float64Array;
+  imB: Float64Array;
+}
+
+let specCache: Spectrum | null = null;
+let hann = new Float64Array(0);
+
+function spectrumOf(buf: Float32Array): Spectrum {
+  let size = 1;
+  while (size * 2 <= buf.length) size <<= 1;
+  size >>= 1; // each half
+  const hop = buf.length - size; // B is the last `size` samples
+  if (!specCache || specCache.size !== size) {
+    specCache = {
+      size,
+      hop,
+      reA: new Float64Array(size),
+      imA: new Float64Array(size),
+      reB: new Float64Array(size),
+      imB: new Float64Array(size),
+    };
+    hann = new Float64Array(size);
+    for (let i = 0; i < size; i++) hann[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / size);
+  }
+  const s = specCache;
+  s.hop = hop;
+  for (let i = 0; i < size; i++) {
+    s.reA[i] = buf[i] * hann[i];
+    s.reB[i] = buf[i + hop] * hann[i];
+  }
+  s.imA.fill(0);
+  s.imB.fill(0);
+  fft(s.reA, s.imA, false);
+  fft(s.reB, s.imB, false);
+  return s;
+}
+
+function mag(s: Spectrum, k: number): number {
+  return Math.hypot(s.reA[k], s.imA[k]) + Math.hypot(s.reB[k], s.imB[k]);
+}
+
+/** Strongest bin within ±`cents` of `freq`, or −1. */
+function peakBin(s: Spectrum, freq: number, sampleRate: number, cents: number): number {
+  const binHz = sampleRate / s.size;
+  const lo = Math.max(1, Math.floor((freq * Math.pow(2, -cents / 1200)) / binHz));
+  const hi = Math.min(s.size / 2 - 2, Math.ceil((freq * Math.pow(2, cents / 1200)) / binHz));
+  let best = -1;
+  for (let k = lo; k <= hi; k++) if (best < 0 || mag(s, k) > mag(s, best)) best = k;
+  return best;
+}
+
+function princarg(a: number): number {
+  return a - 2 * Math.PI * Math.round(a / (2 * Math.PI));
+}
+
+/** Exact frequency of the partial near `approx` (Hz), from the phase change. */
+function partialFreq(s: Spectrum, approx: number, sampleRate: number): number | null {
+  const k = peakBin(s, approx, sampleRate, 60);
+  if (k < 2) return null;
+  // First a coarse estimate from the magnitude shape (within a bin)…
+  const a = Math.log(mag(s, k - 1) + 1e-12);
+  const b = Math.log(mag(s, k) + 1e-12);
+  const c = Math.log(mag(s, k + 1) + 1e-12);
+  const denom = a - 2 * b + c;
+  const delta = denom < 0 ? (0.5 * (a - c)) / denom : 0;
+  const coarse = ((k + delta) * sampleRate) / s.size;
+  // …then the phase advance over the hop pins it down.
+  const phaseA = Math.atan2(s.imA[k], s.reA[k]);
+  const phaseB = Math.atan2(s.imB[k], s.reB[k]);
+  const expected = (2 * Math.PI * coarse * s.hop) / sampleRate;
+  const fine = coarse + (princarg(phaseB - phaseA - expected) * sampleRate) / (2 * Math.PI * s.hop);
+  return Number.isFinite(fine) ? fine : null;
+}
+
+/**
+ * The fundamental partial's exact frequency. When the phone's mic barely
+ * picks up the fundamental (low strings), use the 2nd partial ÷ 2.
+ */
+function measureFundamental(s: Spectrum, f0: number, sampleRate: number): number | null {
+  const k1 = peakBin(s, f0, sampleRate, 40);
+  const k2 = peakBin(s, f0 * 2, sampleRate, 40);
+  if (k1 < 0) return null;
+  if (k2 > 0 && mag(s, k1) < 0.2 * mag(s, k2)) {
+    const f2 = partialFreq(s, f0 * 2, sampleRate);
+    return f2 ? f2 / 2 : null;
+  }
+  return partialFreq(s, f0, sampleRate);
+}
+
+/**
+ * Another string ringing along (or the guitar body) can make the period
+ * look 2–4× longer than the note being played. If the supposed fundamental
+ * and its next two partials are nearly silent next to a higher partial,
+ * move up an octave.
+ */
+function fixSubharmonic(s: Spectrum, f0: number, sampleRate: number, maxFreq: number): number {
+  let f = f0;
+  for (let tries = 0; tries < 2; tries++) {
+    if (f * 2 > maxFreq * 1.1) break;
+    let low = 0;
+    let all = 0;
+    for (let m = 1; m <= 8; m++) {
+      if (m * f > sampleRate / 2 - 100) break;
+      const k = peakBin(s, m * f, sampleRate, 30);
+      if (k < 0) continue;
+      const v = mag(s, k);
+      if (m <= 3) low = Math.max(low, v);
+      all = Math.max(all, v);
+    }
+    // Odd partials (1, 3) of f missing and the even ones strong = it's 2f.
+    const odd = Math.max(mag(s, Math.max(1, peakBin(s, f, sampleRate, 30))), mag(s, Math.max(1, peakBin(s, 3 * f, sampleRate, 30))));
+    const even = Math.max(mag(s, Math.max(1, peakBin(s, 2 * f, sampleRate, 30))), mag(s, Math.max(1, peakBin(s, 4 * f, sampleRate, 30))));
+    if (low < 0.12 * all || odd < 0.12 * even) f *= 2;
+    else break;
+  }
+  return f;
 }
 
 // --- Notes ----------------------------------------------------------------------

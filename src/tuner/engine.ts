@@ -25,7 +25,10 @@ let analyser: AnalyserNode | null = null;
 let timer: ReturnType<typeof setInterval> | null = null;
 let frame = new Float32Array(4096);
 let range = { minFreq: 60, maxFreq: 450 };
-const smoother = new PitchSmoother(5);
+const smoother = new PitchSmoother(7);
+let lastLevel = 0;
+let onsetAt = 0;
+const ATTACK_MS = 140; // a picked note starts sharp; skip its first moment
 let quietSince = 0;
 let mutedUntil = 0;
 let listener: (r: Reading | null) => void = () => {};
@@ -99,6 +102,7 @@ function tick(): void {
   const level = rms(frame);
   const now = performance.now();
   if (now < mutedUntil || level < SILENCE) {
+    lastLevel = level;
     // Keep the last note on screen briefly, then clear it.
     if (!quietSince) quietSince = now;
     if (now - quietSince > 1200) {
@@ -107,6 +111,13 @@ function tick(): void {
     }
     return;
   }
+  // A new pluck: start fresh and let the attack settle before reading.
+  if (level > lastLevel * 2.5 && level > SILENCE * 2) {
+    onsetAt = now;
+    smoother.reset();
+  }
+  lastLevel = level;
+  if (now - onsetAt < ATTACK_MS) return;
   const r = detectPitch(frame, { sampleRate: ctx.sampleRate, ...range });
   if (!r || r.clarity < MIN_CLARITY) return;
   quietSince = 0;
