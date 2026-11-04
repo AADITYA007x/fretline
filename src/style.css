@@ -1371,7 +1371,6 @@ html.entry .app {
 .strip-staff {
   display: flex;
   overflow-x: auto;
-  scroll-behavior: smooth;
   padding: 0 8px;
   overscroll-behavior-x: contain;
 }
@@ -1383,6 +1382,11 @@ html.entry .app {
   min-width: 34px;
   padding: 0 2px;
   border-radius: 8px;
+}
+
+/* where the next page of the video's tab begins */
+.staff-col.page-start {
+  box-shadow: inset 1px 0 0 var(--bone-faint, rgba(255, 255, 255, 0.18));
 }
 
 .staff-col.labels {

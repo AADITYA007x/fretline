@@ -258,6 +258,14 @@ test.describe("reading tab from the video", () => {
     expect(done / cols).toBeGreaterThan(0.25);
     expect(done / cols).toBeLessThan(0.55);
     await expect(page.locator("#strip-picture")).toBeVisible();
+    await expect(page.locator("#strip-label")).toContainText("page 1 of 1");
+    // The tape glides with the video (no jumps back to the start).
+    const left = () => page.locator("#strip-staff").evaluate((el) => el.scrollLeft);
+    const a = await left();
+    await page.waitForTimeout(700);
+    const b = await left();
+    const max = await page.locator("#strip-staff").evaluate((el) => el.scrollWidth - el.clientWidth);
+    if (a < max - 1) expect(b).toBeGreaterThan(a); // (a wide screen may already show the end)
     await shot(page, "28-screen-tab", info.project.name);
 
     // Each page read at three moments; the details can be sent for checking.

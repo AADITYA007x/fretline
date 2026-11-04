@@ -76,3 +76,19 @@ describe.skipIf(!hasTesseract)("reading the laid-out digits (Tesseract standing 
     expect(right).toBeGreaterThanOrEqual(20);
   });
 });
+
+describe("one mark, one digit", () => {
+  it("a single mark read as \"22\" (two neighbours run together) keeps one digit", () => {
+    const g = pic("believer-bar31");
+    const tokens = findTokens(g, W, H, LINES);
+    const lay = layOut(g, W, H, tokens, LINES);
+    const s = lay.slots[0];
+    const mid = (s.x0 + s.x1) / 2;
+    const chars: ReadChar[] = [
+      { c: "2", x: mid - 6, y: s.y0 + 4, w: 8, h: 20 },
+      { c: "2", x: mid + 3, y: s.y0 + 4, w: 8, h: 20 },
+    ];
+    expect(s.marks).toBe(1);
+    expect(readTokens(lay, chars)[0]).toBe(2);
+  });
+});

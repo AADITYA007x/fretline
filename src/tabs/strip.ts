@@ -46,6 +46,8 @@ let controls: StripControls | null = null;
 let shownPhrase = -2;
 let shownColumn = -2;
 let shownUpcoming = false;
+let shownLabel = "";
+let shownFromScreen = false;
 let editing: TabNote | null = null;
 let draft: Pick<TabNote, "string" | "fret" | "finger" | "tech"> | null = null;
 
@@ -54,9 +56,58 @@ function fmt(sec: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
+/**
+ * Where the on-screen tab starts or stops (not each page change: pages
+ * that follow each other run on as one continuous tape).
+ */
+function tabBreaks(pages: { start: number; end: number }[]): number[] {
+  const out: number[] = [];
+  const sorted = [...pages].sort((a, b) => a.start - b.start);
+  sorted.forEach((p, i) => {
+    const prev = sorted[i - 1];
+    const next = sorted[i + 1];
+    if (!prev || p.start - prev.end > 1.5) out.push(p.start);
+    if (!next || next.start - p.end > 1.5) out.push(p.end);
+  });
+  return out;
+}
+
+/** "page 4 of 20" for the video's tab page showing at t. */
+function pageLabel(t: number): string {
+  const pages = fixes.screen?.pages ?? [];
+  const i = pages.findIndex((p) => t >= p.start - 0.05 && t < p.end);
+  return i >= 0 ? `page ${i + 1} of ${pages.length}` : "";
+}
+
+let colEls: HTMLElement[] = [];
+/** Until when the tape stays where you scrolled it. */
+let handsOnUntil = 0;
+
+/** Glide the tape so the moment t sits a third of the way in. */
+function glide(p: Phrase, t: number, upcoming: boolean): void {
+  const host = $("strip-staff");
+  if (Date.now() < handsOnUntil || !colEls.length) return;
+  let x: number;
+  if (upcoming) x = colEls[0].offsetLeft;
+  else {
+    const i = Math.max(0, columnAt(p, t));
+    const a = colEls[i];
+    const b = colEls[i + 1];
+    const ca = a.offsetLeft + a.clientWidth / 2;
+    if (!b || columnAt(p, t) < 0) x = ca;
+    else {
+      const ta = p.columns[i].t;
+      const tb = p.columns[i + 1].t;
+      const k = tb > ta ? Math.max(0, Math.min(1, (t - ta) / (tb - ta))) : 0;
+      x = ca + k * (b.offsetLeft + b.clientWidth / 2 - ca);
+    }
+  }
+  host.scrollLeft = x - host.clientWidth * 0.35;
+}
+
 function rebuild(): void {
   base = combine(speech, fixes.screen);
-  phrases = toPhrases(applyFixes(base, fixes), 7, (fixes.screen?.pages ?? []).flatMap((p) => [p.start, p.end]));
+  phrases = toPhrases(applyFixes(base, fixes), 7, tabBreaks(fixes.screen?.pages ?? []));
   pictureFor = -1;
   shownPhrase = -2;
   if (controls) render(controls.time());
@@ -94,10 +145,12 @@ function renderPhrase(p: Phrase): void {
           return `<div class="staff-cell"><button type="button" class="tnote${n.source === "you" || fixes.edits[n.id] ? " yours" : ""}" data-id="${escapeHtml(n.id)}" aria-label="String ${s}, fret ${n.fret}">${escapeHtml(fretLabel(n))}${finger}</button></div>`;
         })
         .join("");
-      return `<div class="staff-col" data-col="${ci}">${cells}</div>`;
+      const pageStart = ci > 0 && pageLabel(c.t) !== pageLabel(p.columns[ci - 1].t);
+      return `<div class="staff-col${pageStart ? " page-start" : ""}" data-col="${ci}">${cells}</div>`;
     })
     .join("");
   host.innerHTML = `<div class="staff-col labels" aria-hidden="true">${labels}</div>${cols}`;
+  colEls = Array.from(host.querySelectorAll<HTMLElement>(".staff-col[data-col]"));
 }
 
 /** Update for the moment `t` in the video (called every frame). */
@@ -108,6 +161,7 @@ export function render(t: number): void {
       const none = fixes.screen?.none;
       $("strip-staff").innerHTML = `<p class="strip-empty">No notes found in his words yet.${none ? ` ${none}` : " If the video shows tab, tap <b>Read video tab</b>."} Tap <b>+ Note</b> to add one at this moment.</p>`;
       $("strip-label").textContent = "Tab";
+      colEls = [];
       $("strip-tip").textContent = "";
       $("tab-strip").classList.remove("upcoming");
       shownPhrase = -1;
@@ -123,11 +177,21 @@ export function render(t: number): void {
     shownUpcoming = at.upcoming;
     shownColumn = -2;
     $("tab-strip").classList.toggle("upcoming", at.upcoming);
-    const fromScreen = p.columns.some((c) => c.notes.some((n) => n.source === "screen"));
-    $("strip-label").textContent = at.upcoming
-      ? `Next notes, at ${fmt(p.start)}`
-      : `${fromScreen ? "Tab from the video" : "Notes from what he says"} · ${at.index + 1} of ${phrases.length}`;
+    shownLabel = "";
+    shownFromScreen = p.columns.some((c) => c.notes.some((n) => n.source === "screen"));
   }
+  const fromScreen = shownFromScreen;
+  const page = fromScreen ? pageLabel(t) : "";
+  const label = at.upcoming
+    ? `Next notes, at ${fmt(p.start)}`
+    : fromScreen
+      ? `Tab from the video${page ? ` · ${page}` : ""}`
+      : `Notes from what he says · ${at.index + 1} of ${phrases.length}`;
+  if (label !== shownLabel) {
+    $("strip-label").textContent = label;
+    shownLabel = label;
+  }
+  glide(p, t, at.upcoming);
   const col = at.upcoming ? -1 : columnAt(p, t);
   if (col === shownColumn) return;
   shownColumn = col;
@@ -137,8 +201,6 @@ export function render(t: number): void {
     el.classList.toggle("done", i <= col);
     el.classList.toggle("now", i === col);
   });
-  const nowEl = host.querySelector<HTMLElement>(".staff-col.now");
-  if (nowEl) host.scrollTo({ left: nowEl.offsetLeft - host.clientWidth / 2 + nowEl.clientWidth / 2 });
   const tip = col >= 0 && controls ? controls.saidAt(p.columns[col].t) : "";
   $("strip-tip").textContent = tip ? `“${tip}”` : "";
 }
@@ -272,6 +334,8 @@ export function reloadFixes(id: string): void {
 }
 
 export function initStrip(): void {
+  // Scrolling the tape yourself holds it there for a few seconds.
+  for (const ev of ["pointerdown", "wheel", "touchstart"]) $("strip-staff").addEventListener(ev, () => (handsOnUntil = Date.now() + 3000), { passive: true });
   $("strip-staff").addEventListener("click", (e) => {
     const btn = (e.target as HTMLElement).closest<HTMLElement>(".tnote");
     if (btn) {

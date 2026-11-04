@@ -16,6 +16,8 @@ export interface Token {
   y1: number;
   /** 1 = high e … 6 = low E. */
   string: number;
+  /** Marks joined into it: 1 for "3", 2 for "12". */
+  marks: number;
 }
 
 export interface Layout {
@@ -23,7 +25,7 @@ export interface Layout {
   w: number;
   h: number;
   /** Where each token went in the layout image. */
-  slots: { x0: number; x1: number; y0: number; y1: number }[];
+  slots: { x0: number; x1: number; y0: number; y1: number; marks: number }[];
 }
 
 function background(gray: Uint8Array): number {
@@ -148,9 +150,10 @@ export function findTokens(gray: Uint8Array, w: number, h: number, lines: number
       last.x1 = Math.max(last.x1, b.x1);
       last.y0 = Math.min(last.y0, b.y0);
       last.y1 = Math.max(last.y1, b.y1);
+      last.marks++;
       continue;
     }
-    tokens.push({ x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1, string: b.string });
+    tokens.push({ x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1, string: b.string, marks: 1 });
   }
   return tokens.sort((a, b) => a.x0 - b.x0 || a.string - b.string);
 }
@@ -160,9 +163,10 @@ export function findTokens(gray: Uint8Array, w: number, h: number, lines: number
  * with a gap around each, at most `perRow` to a row. Only their ink is
  * copied (black on white).
  */
-export function layOut(gray: Uint8Array, w: number, h: number, tokens: Token[], lines: number[], scale = 3, perRow = 30): Layout {
+export function layOut(gray: Uint8Array, w: number, h: number, tokens: Token[], lines: number[], scale = 3, perRow = 20): Layout {
   const sp = (lines[5] - lines[0]) / 5;
-  const gap = Math.round(sp * 1.1 * scale);
+  // Wide gaps, so the reader never takes two neighbours for one number.
+  const gap = Math.round(sp * 2.4 * scale);
   const cellH = Math.round(sp * 1.2 * scale);
   const rowH = cellH + gap;
   const rows: Token[][] = [];
@@ -186,7 +190,7 @@ export function layOut(gray: Uint8Array, w: number, h: number, tokens: Token[], 
           const sy = t.y0 + Math.floor(yy / scale);
           if (mask[sy * w + sx]) out[(oy + yy) * W + x + xx] = 0;
         }
-      slots.push({ x0: x, x1: x + tw * scale, y0: top, y1: top + cellH });
+      slots.push({ x0: x, x1: x + tw * scale, y0: top, y1: top + cellH, marks: t.marks });
       x += tw * scale + gap;
     }
   });
@@ -209,18 +213,26 @@ const DIGITISH: Record<string, string> = { O: "0", o: "0", D: "0", Q: "0", l: "1
  * where nothing sensible was read, or an X).
  */
 export function readTokens(layout: Layout, chars: ReadChar[]): (number | null)[] {
-  const text: string[] = layout.slots.map(() => "");
+  const got: { cx: number; c: string }[][] = layout.slots.map(() => []);
   for (const ch of chars) {
     const cx = ch.x + ch.w / 2;
     const cy = ch.y + ch.h / 2;
     const i = layout.slots.findIndex((s) => cx >= s.x0 - 4 && cx <= s.x1 + 4 && cy >= s.y0 - 4 && cy <= s.y1 + 4);
     if (i < 0) continue;
-    for (const c of ch.c) text[i] += /\d/.test(c) ? c : (DIGITISH[c] ?? (c === "x" || c === "X" ? "x" : ""));
+    for (const c of ch.c) {
+      const d = /\d/.test(c) ? c : (DIGITISH[c] ?? (c === "x" || c === "X" ? "x" : ""));
+      if (d) got[i].push({ cx, c: d });
+    }
   }
-  return text.map((t) => {
-    if (!t || t.includes("x")) return null;
-    const n = Number(t.slice(0, 2));
-    return Number.isFinite(n) && n <= 24 ? n : Number(t[0]);
+  return got.map((list, i) => {
+    const slot = layout.slots[i];
+    if (!list.length || list.some((g) => g.c === "x")) return null;
+    // A single mark is a single digit: keep the one nearest the middle.
+    const mid = (slot.x0 + slot.x1) / 2;
+    const keep = [...list].sort((p, q) => Math.abs(p.cx - mid) - Math.abs(q.cx - mid)).slice(0, slot.marks);
+    const t = keep.sort((p, q) => p.cx - q.cx).map((g) => g.c).join("");
+    const n = Number(t);
+    return n <= 24 ? n : Number(t[0]);
   });
 }
 
