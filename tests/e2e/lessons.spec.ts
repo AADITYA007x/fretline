@@ -282,6 +282,25 @@ test.describe("reading tab from the video", () => {
     await expect.poll(() => page.evaluate(() => (window as any).__scanCalls.length), { timeout: 12_000 }).toBeGreaterThan(0);
   });
 
+  test("a lesson read by the older reader can be read again, at 1080p on Wi-Fi", async ({ page }) => {
+    await fakeSupabase(page);
+    await fakeTabScan(page, gray, ocr);
+    await page.addInitScript(() => {
+      (window as any).__fretlineFakeConnection = "wifi";
+      const old = { at: 1, notes: [{ id: "v10-2", t: 1, string: 2, fret: 3, source: "screen" }], pages: [{ start: 0, end: 5, notes: 1 }] };
+      localStorage.setItem("fretline:fixes:2Lq784V-KPw", JSON.stringify({ edits: {}, added: [], updatedAt: 1, screen: old }));
+    });
+    await page.goto("/");
+    await page.click('.tab[data-view="lessons"]');
+    await page.fill("#lesson-link", "2Lq784V-KPw");
+    await page.click('#add-lesson-form button[type="submit"]');
+    await expect(page.locator("#scan-btn")).toHaveText("Read again (better)");
+    await page.click("#scan-btn");
+    await expect(page.locator("#toast")).toContainText(/Read \d+ notes/, { timeout: 15_000 });
+    await expect(page.locator("#scan-btn")).toBeHidden();
+    expect(await page.evaluate(() => (window as any).__scanHeight)).toBe(1080);
+  });
+
   test("a video without on-screen tab says so", async ({ page }) => {
     await fakeSupabase(page);
     await fakeTabScan(page, gray, ocr, { noTab: true });

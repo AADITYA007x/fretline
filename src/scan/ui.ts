@@ -5,7 +5,7 @@ import { $ } from "../utils";
 import { getFixes, saveScreenTab } from "../tabs/fixes";
 import { closeSheet, openSheet } from "../ui/sheets";
 import { tabScan, connection } from "./native";
-import { scanLesson, scanning, stopScan, type Step } from "./scan";
+import { scanLesson, scanning, stopScan, SCAN_VERSION, type Step } from "./scan";
 
 let lessonId: () => string | null = () => null;
 let onDone: (videoId: string) => void = () => {};
@@ -31,17 +31,19 @@ export function renderScanButton(): void {
   const id = lessonId();
   const screen = id ? getFixes(id).screen : undefined;
   const busy = scanning() !== null;
-  $("scan-btn").hidden = !id || busy || !!screen?.notes.length;
+  const old = !!screen?.notes.length && (screen.v ?? 1) < SCAN_VERSION;
+  $("scan-btn").hidden = !id || busy || (!!screen?.notes.length && !old);
+  $("scan-btn").textContent = old ? "Read again (better)" : "Read video tab";
   $("scan-row").hidden = !busy || scanning() !== id;
 }
 
-async function run(videoId: string): Promise<void> {
+async function run(videoId: string, maxHeight = 1080): Promise<void> {
   showStep({ phase: "download", fraction: 0 });
   renderScanButton();
   $("scan-row").hidden = false;
   try {
-    const result = await scanLesson(videoId, showStep);
-    saveScreenTab(videoId, { at: Date.now(), notes: result.notes, pages: result.pages, none: result.none });
+    const result = await scanLesson(videoId, showStep, maxHeight);
+    saveScreenTab(videoId, { at: Date.now(), notes: result.notes, pages: result.pages, none: result.none, v: SCAN_VERSION });
     bus.emit("toast", result.none ?? `Read ${result.notes.length} notes from the video's tab`);
     onDone(videoId);
   } catch (err) {
@@ -64,7 +66,7 @@ async function start(): Promise<void> {
   if (net === "cellular") {
     let size = "";
     try {
-      const info = await tabScan.prepare({ videoId });
+      const info = await tabScan.prepare({ videoId, maxHeight: 720 });
       if (info.bytes > 0) size = `about ${Math.max(1, Math.round(info.bytes / 1e6))} MB`;
     } catch {
       // size unknown
@@ -87,7 +89,8 @@ export function initScanUi(currentLesson: () => string | null, done: (videoId: s
   $("scan-go").addEventListener("click", () => {
     closeSheet();
     const id = lessonId();
-    if (id) void run(id);
+    // On mobile data, the smaller 720p picture.
+    if (id) void run(id, 720);
   });
   $("scan-wait").addEventListener("click", () => {
     closeSheet();

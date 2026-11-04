@@ -134,6 +134,18 @@ describe("pages and cursor in real lesson videos", () => {
     }
   });
 
+  it("the same line played twice is two pages, one per cursor sweep", () => {
+    const all = recorded("love-story");
+    const one = findPages(all).find((p) => p.start > 7 && p.start < 9)!;
+    const fs = all.filter((f) => f.t >= one.start && f.t < one.end);
+    const len = one.end - one.start;
+    const twice = [...fs, ...fs.map((f) => ({ ...f, t: f.t + len }))];
+    const pages = findPages(twice);
+    expect(pages.length).toBe(2);
+    expect(Math.abs(pages[1].start - (one.start + len))).toBeLessThan(0.6);
+    for (const p of pages) expect(p.cursor[p.cursor.length - 1].x - p.cursor[0].x).toBeGreaterThan(0.6);
+  });
+
   it("Believer: pages of 3–5.5 s, the pale cyan cursor found on most", () => {
     const pages = findPages(recorded("believer"));
     const full = pages.filter((p) => p.end - p.start > 3);

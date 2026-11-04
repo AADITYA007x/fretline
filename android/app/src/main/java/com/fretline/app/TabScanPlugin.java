@@ -53,7 +53,7 @@ import org.schabi.newpipe.extractor.stream.VideoStream;
  *
  * The app's TypeScript does the thinking (where the tab is, when pages
  * change, where the cursor is); this side does the heavy lifting:
- *  - prepare/download: pick a 720p-or-lower video-only stream and fetch it
+ *  - prepare/download: pick a video-only stream (1080p on Wi-Fi, 720p on mobile data) and fetch it
  *  - overview: a few frames as small grey pictures, to find the tab
  *  - features: decode the whole video once and, a few times a second,
  *    measure the tab area (brightness and blue/yellow per column, plus a
@@ -101,9 +101,10 @@ public class TabScanPlugin extends Plugin {
 
     // --- Choosing and downloading the video ---------------------------------------
 
-    /** The best picture-only stream up to 720p that Android can decode (mp4/H.264 first). */
-    private VideoStream pick(String videoId) throws Exception {
-        VideoStream cached = picked.get(videoId);
+    /** The best picture-only stream up to maxHeight that Android can decode (mp4/H.264 first). */
+    private VideoStream pick(String videoId, int maxHeight) throws Exception {
+        String key = videoId + "@" + maxHeight;
+        VideoStream cached = picked.get(key);
         if (cached != null) return cached;
         initNewPipe();
         StreamInfo info = StreamInfo.getInfo(ServiceList.YouTube, "https://www.youtube.com/watch?v=" + videoId);
@@ -112,28 +113,31 @@ public class TabScanPlugin extends Plugin {
         for (VideoStream s : info.getVideoOnlyStreams()) {
             if (!s.isUrl() || s.getDeliveryMethod() != DeliveryMethod.PROGRESSIVE_HTTP) continue;
             int h = s.getHeight();
-            if (h <= 0 || h > 720) continue;
+            if (h <= 0 || h > maxHeight) continue;
             boolean mp4 = s.getFormat() == org.schabi.newpipe.extractor.MediaFormat.MPEG_4;
             String codec = s.getCodec() != null ? s.getCodec() : "";
             boolean avc = codec.startsWith("avc");
-            // Taller is better (tab digits are small); H.264 decodes everywhere.
-            int score = h * 10 + (mp4 && avc ? 5 : 0) + (s.getFps() <= 30 ? 1 : 0);
+            // Taller is better (tab digits are small); H.264 decodes everywhere,
+            // VP9 nearly everywhere, AV1 only on newer phones (last resort).
+            boolean av1 = codec.startsWith("av01");
+            int score = (av1 ? -100000 : 0) + h * 10 + (mp4 && avc ? 5 : 0) + (s.getFps() <= 30 ? 1 : 0);
             if (score > bestScore) {
                 bestScore = score;
                 best = s;
             }
         }
         if (best == null) throw new IOException("No downloadable video for " + videoId);
-        picked.put(videoId, best);
+        picked.put(key, best);
         return best;
     }
 
     @PluginMethod
     public void prepare(PluginCall call) {
         String videoId = call.getString("videoId");
+        int maxHeight = call.getInt("maxHeight", 720);
         worker.execute(() -> {
             try {
-                VideoStream s = pick(videoId);
+                VideoStream s = pick(videoId, maxHeight);
                 ItagItem itag = s.getItagItem();
                 JSObject out = new JSObject();
                 out.put("height", s.getHeight());
@@ -151,6 +155,7 @@ public class TabScanPlugin extends Plugin {
     @PluginMethod
     public void download(PluginCall call) {
         String videoId = call.getString("videoId");
+        int maxHeight = call.getInt("maxHeight", 720);
         cancelled.remove(videoId);
         worker.execute(() -> {
             File part = new File(scanDir(), videoId + ".part");
@@ -160,7 +165,7 @@ public class TabScanPlugin extends Plugin {
                     call.resolve(new JSObject());
                     return;
                 }
-                VideoStream s = pick(videoId);
+                VideoStream s = pick(videoId, maxHeight);
                 ItagItem itag = s.getItagItem();
                 long total = itag != null ? itag.getContentLength() : -1;
                 String url = s.getContent();

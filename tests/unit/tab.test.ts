@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyFixes, columnAt, emptyFixes, fretLabel, fromSpoken, phraseAt, toPhrases } from "../../src/tabs/tab";
+import { applyFixes, columnAt, emptyFixes, fretLabel, fromSpoken, phraseAt, toPhrases, type TabNote } from "../../src/tabs/tab";
 
 const spoken = [
   { t: 10, string: 4, fret: 2, said: "a" },
@@ -62,5 +62,23 @@ describe("combining what he says with the tab on screen", () => {
     };
     expect(combine(speech, screen).map((n) => `${n.source}:${n.string}:${n.fret}`)).toEqual(["speech:4:2", "screen:6:3"]);
     expect(combine(speech, undefined)).toBe(speech);
+  });
+});
+
+describe("phrases follow the video's tab pages", () => {
+  const n = (t: number, fret: number): TabNote => ({ id: `n${t}`, t, string: 2, fret, source: "screen" });
+  it("each page is its own phrase, shown from the moment the page appears", () => {
+    // Pages 10–16.5 and 16.5–23, notes close together across the change.
+    const notes = [n(10.5, 1), n(12, 3), n(16, 1), n(16.8, 0), n(18, 3), n(22.5, 1)];
+    const ph = toPhrases(notes, 7, [10, 16.5, 16.5, 23]);
+    expect(ph.map((p) => p.columns.length)).toEqual([3, 3]);
+    expect(ph[1].start).toBe(16.5);
+    expect(phraseAt(ph, 16.6)).toEqual({ index: 1, upcoming: false });
+    expect(columnAt(ph[1], 16.6)).toBe(-1);
+  });
+  it("his words after the tab ends start a new phrase", () => {
+    const said: TabNote = { id: "s", t: 25, string: 1, fret: 5, source: "speech" };
+    const ph = toPhrases([n(20, 1), said], 7, [16.5, 23]);
+    expect(ph.length).toBe(2);
   });
 });

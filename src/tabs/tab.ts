@@ -30,6 +30,8 @@ export interface ScreenTab {
   notes: TabNote[];
   pages: { start: number; end: number; image?: string; notes: number }[];
   none?: string;
+  /** Which version of the reader made it (older ones can be read again). */
+  v?: number;
 }
 
 /**
@@ -82,22 +84,34 @@ export interface Phrase {
 
 /**
  * Columns (notes said together share one), then phrases: a pause of more
- * than `gap` seconds in his note-naming starts a new phrase.
+ * than `gap` seconds in his note-naming starts a new phrase, and so does
+ * each new page of on-screen tab (`breaks`, its start times), so the strip
+ * shows the same notes as the video.
  */
-export function toPhrases(notes: TabNote[], gap = 7): Phrase[] {
+export function toPhrases(notes: TabNote[], gap = 7, breaks: number[] = []): Phrase[] {
   const columns: Column[] = [];
   for (const n of notes) {
     const last = columns[columns.length - 1];
     if (last && n.chord !== undefined && last.notes.some((x) => x.chord === n.chord)) last.notes.push(n);
     else columns.push({ t: n.t, notes: [n] });
   }
+  const starts = [...breaks].sort((a, b) => a - b);
+  /** The latest page start at or before t (−Infinity if none). */
+  const pageOf = (t: number) => {
+    let b = -Infinity;
+    for (const s of starts) if (s <= t + 0.05) b = s;
+    return b;
+  };
   const phrases: Phrase[] = [];
+  let page = -Infinity;
   for (const c of columns) {
     const p = phrases[phrases.length - 1];
-    if (p && c.t - p.end <= gap) {
+    const pg = pageOf(c.t);
+    if (p && c.t - p.end <= gap && pg === page) {
       p.columns.push(c);
       p.end = c.t;
-    } else phrases.push({ start: c.t, end: c.t, columns: [c] });
+    } else phrases.push({ start: pg > -Infinity && pg !== page ? Math.min(pg, c.t) : c.t, end: c.t, columns: [c] });
+    page = pg;
   }
   return phrases;
 }

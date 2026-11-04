@@ -267,8 +267,9 @@ export async function fakeTabScan(page: Page, overviewB64: string, ocr: unknown,
           return { remove: async () => (listeners[ev] = listeners[ev].filter((f) => f !== fn)) };
         },
         prepare: async () => ({ width: 1080, height: 607, bytes: 42e6, downloaded: false }),
-        download: async ({ videoId }: { videoId: string }) => {
+        download: async ({ videoId, maxHeight }: { videoId: string; maxHeight?: number }) => {
           w.__scanCalls.push("download");
+          w.__scanHeight = maxHeight;
           for (let i = 1; i <= 4; i++) {
             await new Promise((r) => setTimeout(r, 80));
             emit("progress", { videoId, phase: "download", done: i * 10.5e6, total: 42e6 });

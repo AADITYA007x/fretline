@@ -205,19 +205,30 @@ export interface Page {
 export function findPages(frames: FrameFeatures[], minSec = 1.2): Page[] {
   const pages: Page[] = [];
   let cur: { start: number; frames: FrameFeatures[] } | null = null;
+  const emit = (start: number, fs: FrameFeatures[], end: number) => {
+    if (end - start < minSec) return;
+    const mid = fs[Math.floor(fs.length / 2)];
+    pages.push({
+      start,
+      end,
+      readAt: mid.t,
+      cursor: forwardOnly(fs.map((f) => ({ t: f.t, x: cursorX(f.u, f.v) })).filter((c): c is { t: number; x: number } => c.x !== null)),
+      thumb: mid.m,
+    });
+  };
   const close = (end: number) => {
     if (!cur) return;
+    // The same line played twice looks like one page: split where the
+    // cursor goes back to the start.
     const fs = cur.frames;
-    if (end - cur.start >= minSec) {
-      const mid = fs[Math.floor(fs.length / 2)];
-      pages.push({
-        start: cur.start,
-        end,
-        readAt: mid.t,
-        cursor: forwardOnly(fs.map((f) => ({ t: f.t, x: cursorX(f.u, f.v) })).filter((c): c is { t: number; x: number } => c.x !== null)),
-        thumb: mid.m,
-      });
+    let start = cur.start;
+    let from = 0;
+    for (const i of sweepStarts(fs)) {
+      emit(start, fs.slice(from, i), fs[i].t);
+      start = fs[i].t;
+      from = i;
     }
+    emit(start, fs.slice(from), end);
     cur = null;
   };
   for (const f of frames) {
@@ -237,6 +248,32 @@ export function findPages(frames: FrameFeatures[], minSec = 1.2): Page[] {
   }
   if (cur) close((cur as { frames: FrameFeatures[] }).frames[(cur as { frames: FrameFeatures[] }).frames.length - 1].t + 0.25);
   return pages;
+}
+
+/**
+ * Where the cursor jumps back from the right part to the left and carries
+ * on from there (the next reading agrees), a new sweep starts. A single
+ * stray reading doesn't count.
+ */
+export function sweepStarts(fs: FrameFeatures[]): number[] {
+  const seen: { i: number; x: number }[] = [];
+  for (let i = 0; i < fs.length; i++) {
+    const x = cursorX(fs[i].u, fs[i].v);
+    if (x !== null) seen.push({ i, x });
+  }
+  const out: number[] = [];
+  let top = -1;
+  for (let k = 1; k + 1 < seen.length; k++) {
+    top = Math.max(top, seen[k - 1].x);
+    const a = seen[k];
+    const b = seen[k + 1];
+    if (top > 0.55 && a.x < top - 0.4 && b.x < top - 0.4 && b.x >= a.x - 0.01 && b.i - a.i <= 8) {
+      // Not right at the page's edges.
+      if (a.i >= 4 && fs.length - a.i >= 4) out.push(a.i);
+      top = -1;
+    }
+  }
+  return out;
 }
 
 /**
@@ -391,7 +428,7 @@ export function timeColumns(cols: ScreenNote[][], page: Page, rect: Rect): { t: 
           return { t: p.t + Math.max(0, Math.min(1, k)) * (q.t - p.t), timed: true };
         }
       }
-      return { t: page.end, timed: false };
+      return { t: Math.max(page.start, page.end - 0.15), timed: false };
     });
   }
   const n = xs.length;

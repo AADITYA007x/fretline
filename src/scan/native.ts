@@ -19,8 +19,8 @@ export interface RawFeatures {
 }
 
 export interface TabScanPlugin {
-  prepare(o: { videoId: string }): Promise<{ width: number; height: number; bytes: number; downloaded: boolean }>;
-  download(o: { videoId: string }): Promise<void>;
+  prepare(o: { videoId: string; maxHeight?: number }): Promise<{ width: number; height: number; bytes: number; downloaded: boolean }>;
+  download(o: { videoId: string; maxHeight?: number }): Promise<void>;
   cancel(o: { videoId: string }): Promise<void>;
   deleteVideo(o: { videoId: string }): Promise<void>;
   deleteImages(o: { videoId: string }): Promise<void>;

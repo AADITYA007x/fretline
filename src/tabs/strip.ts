@@ -56,7 +56,7 @@ function fmt(sec: number): string {
 
 function rebuild(): void {
   base = combine(speech, fixes.screen);
-  phrases = toPhrases(applyFixes(base, fixes));
+  phrases = toPhrases(applyFixes(base, fixes), 7, (fixes.screen?.pages ?? []).flatMap((p) => [p.start, p.end]));
   pictureFor = -1;
   shownPhrase = -2;
   if (controls) render(controls.time());
