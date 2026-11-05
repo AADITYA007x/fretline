@@ -626,6 +626,156 @@ public class TabScanPlugin extends Plugin {
         return n > 0 && sum / n < 12;
     }
 
+    /**
+     * Like areas(), but exact: decodes the video frame by frame and takes
+     * the first frame at or after each time. (On some phones the quick frame
+     * grabber hands back the nearest key frame instead, which can be the
+     * page before.)
+     */
+    @PluginMethod
+    public void areasExact(PluginCall call) {
+        String videoId = call.getString("videoId");
+        JSObject rect = call.getObject("rect");
+        JSArray timesArg = call.getArray("times");
+        worker.execute(() -> {
+            MediaExtractor ex = new MediaExtractor();
+            MediaCodec dec = null;
+            try {
+                int n = timesArg.length();
+                double[] times = new double[n];
+                Integer[] order = new Integer[n];
+                for (int i = 0; i < n; i++) {
+                    times[i] = timesArg.getDouble(i);
+                    order[i] = i;
+                }
+                java.util.Arrays.sort(order, (a, b) -> Double.compare(times[a], times[b]));
+                ex.setDataSource(videoFile(videoId).getAbsolutePath());
+                int track = -1;
+                MediaFormat fmt = null;
+                for (int i = 0; i < ex.getTrackCount(); i++) {
+                    MediaFormat f = ex.getTrackFormat(i);
+                    String mime = f.getString(MediaFormat.KEY_MIME);
+                    if (mime != null && mime.startsWith("video/")) {
+                        track = i;
+                        fmt = f;
+                        break;
+                    }
+                }
+                if (track < 0) throw new IOException("No video in the file");
+                ex.selectTrack(track);
+                if (n > 0) ex.seekTo((long) (Math.max(0, times[order[0]] - 1) * 1e6), MediaExtractor.SEEK_TO_PREVIOUS_SYNC);
+                dec = MediaCodec.createDecoderByType(fmt.getString(MediaFormat.KEY_MIME));
+                fmt.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible);
+                dec.configure(fmt, null, null, 0);
+                dec.start();
+                int rx = rect.getInteger("x", 0);
+                int ry = rect.getInteger("y", 0);
+                int rw = rect.getInteger("w", 0);
+                int rh = rect.getInteger("h", 0);
+                JSObject[] found = new JSObject[n];
+                int next = 0;
+                MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
+                boolean inputDone = false;
+                while (next < n) {
+                    if (Boolean.TRUE.equals(cancelled.get(videoId))) throw new IOException("Stopped");
+                    if (!inputDone) {
+                        int in = dec.dequeueInputBuffer(10_000);
+                        if (in >= 0) {
+                            ByteBuffer buf = dec.getInputBuffer(in);
+                            int size = buf != null ? ex.readSampleData(buf, 0) : -1;
+                            if (size < 0) {
+                                dec.queueInputBuffer(in, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+                                inputDone = true;
+                            } else {
+                                dec.queueInputBuffer(in, 0, size, ex.getSampleTime(), 0);
+                                ex.advance();
+                            }
+                        }
+                    }
+                    int out = dec.dequeueOutputBuffer(info, 10_000);
+                    if (out < 0) continue;
+                    boolean eos = (info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0;
+                    double pts = info.presentationTimeUs / 1e6;
+                    if (info.size > 0 && next < n && pts >= times[order[next]] - 0.02) {
+                        Image img = dec.getOutputImage(out);
+                        if (img != null) {
+                            JSObject res = grabArea(videoId, img, pts, rx, ry, rw, rh);
+                            img.close();
+                            // every time this frame is the first at-or-after
+                            while (next < n && pts >= times[order[next]] - 0.02) {
+                                JSObject r = new JSObject(res.toString());
+                                r.put("t", times[order[next]]);
+                                r.put("frame", pts);
+                                found[order[next]] = r;
+                                next++;
+                                progress(videoId, "read", next, n);
+                            }
+                        }
+                    }
+                    dec.releaseOutputBuffer(out, false);
+                    if (eos) break;
+                }
+                JSArray results = new JSArray();
+                for (JSObject r : found) if (r != null) results.put(r);
+                JSObject outObj = new JSObject();
+                outObj.put("results", results);
+                call.resolve(outObj);
+            } catch (Exception e) {
+                Log.w(TAG, "areasExact", e);
+                call.reject(describe(e));
+            } finally {
+                if (dec != null) {
+                    try {
+                        dec.stop();
+                    } catch (Exception ignored) {
+                        // already stopped
+                    }
+                    dec.release();
+                }
+                ex.release();
+            }
+        });
+    }
+
+    /** The tab area of a decoded frame: grey pixels for the app, and a picture kept for the lesson. */
+    private JSObject grabArea(String videoId, Image img, double t, int rx, int ry, int rw, int rh) throws Exception {
+        Image.Plane[] planes = img.getPlanes();
+        Rect crop = img.getCropRect();
+        int W = crop.width();
+        int H = crop.height();
+        int x = Math.max(0, Math.min(W - 1, rx));
+        int y = Math.max(0, Math.min(H - 1, ry));
+        int w = Math.max(1, Math.min(W - x, rw));
+        int h = Math.max(1, Math.min(H - y, rh));
+        ByteBuffer Y = planes[0].getBuffer();
+        int yRow = planes[0].getRowStride();
+        int yPix = planes[0].getPixelStride();
+        byte[] gray = new byte[w * h];
+        int[] px = new int[w * h];
+        for (int j = 0; j < h; j++) {
+            int row = (crop.top + y + j) * yRow;
+            for (int i = 0; i < w; i++) {
+                int v = Y.get(row + (crop.left + x + i) * yPix) & 0xff;
+                gray[j * w + i] = (byte) v;
+                px[j * w + i] = 0xff000000 | (v << 16) | (v << 8) | v;
+            }
+        }
+        Bitmap area = Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888);
+        File file = new File(imageDir(videoId), Math.round(t * 1000) + ".jpg");
+        try (OutputStream os = new FileOutputStream(file)) {
+            area.compress(Bitmap.CompressFormat.JPEG, 85, os);
+        }
+        area.recycle();
+        JSObject res = new JSObject();
+        res.put("x", x);
+        res.put("y", y);
+        res.put("w", w);
+        res.put("h", h);
+        res.put("gray", Base64.encodeToString(gray, Base64.NO_WRAP));
+        res.put("image", file.getAbsolutePath());
+        return res;
+    }
+
     /** Read the text in a grey picture (the app's neat row of digits) with ML Kit. */
     @PluginMethod
     public void read(PluginCall call) {

@@ -12,6 +12,11 @@ import {
   commonStaff,
   findPages,
   findStaff,
+  changedCells,
+  cursorX,
+  thumbOf,
+  THUMB_H,
+  THUMB_W,
   isScrolling,
   playedHere,
   mergeReadings,
@@ -86,6 +91,21 @@ async function syncWithSound(
   }
 }
 
+/** The measured frame closest to t. */
+function nearestFrame(frames: FrameFeatures[], t: number): FrameFeatures | undefined {
+  let lo = 0;
+  let hi = frames.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (frames[mid].t < t) lo = mid + 1;
+    else hi = mid;
+  }
+  const a = frames[lo];
+  const b = frames[lo - 1];
+  if (!a) return b;
+  return b && Math.abs(b.t - t) < Math.abs(a.t - t) ? b : a;
+}
+
 /** Bytes to base64 (for sending a picture to the phone side). */
 function b64(a: Uint8Array): string {
   let s = "";
@@ -94,7 +114,7 @@ function b64(a: Uint8Array): string {
 }
 
 /** Bump when the reader gets better, so lessons read before can be read again. */
-export const SCAN_VERSION = 12;
+export const SCAN_VERSION = 13;
 
 export async function scanLesson(videoId: string, onStep: (s: Step) => void, maxHeight = 720): Promise<ScanResult> {
   if (running) throw new Error("Already reading another lesson's video.");
@@ -170,7 +190,7 @@ export async function scanLesson(videoId: string, onStep: (s: Step) => void, max
       lines,
       pages: pages.map((p, k) => ({ start: p.start, end: p.end, same: sameAs[k], cursor: p.cursor })),
       scrolling: isScrolling(pages),
-      readings: [] as { t: number; image?: string; chars: unknown[]; notes?: ScreenNote[] }[],
+      readings: [] as { t: number; image?: string; chars: unknown[]; notes?: ScreenNote[]; wrongFrame?: boolean }[],
       merged: [] as ScreenNote[][],
     };
     // Our own digit reader (loaded only when reading).
@@ -184,10 +204,21 @@ export async function scanLesson(videoId: string, onStep: (s: Step) => void, max
       const batch = unique.slice(i, i + 4);
       onStep({ phase: "read", fraction: i / unique.length, detail: `${i} of ${unique.length} tab pages` });
       const times = batch.flatMap((p) => SPOTS.map((f) => p.start + f * (p.end - p.start)));
-      const { results } = await tabScan.areas({ videoId, rect, times });
+      // Exact frames (decoded one by one); the quick grabber only if that fails.
+      const { results } = await tabScan.areasExact({ videoId, rect, times }).catch(() => tabScan.areas({ videoId, rect, times }));
       const found = new Map<number, ScreenNote[]>();
       for (const r of results) {
         const seen: unknown[] = [];
+        // Is this really the page shown at that moment? (compare with what
+        // the look through the video saw then)
+        const at = nearestFrame(frames, r.t);
+        if (at && at.m.length === THUMB_W * THUMB_H && r.w === rect.w && r.h === rect.h) {
+          const cur = cursorX(at.u, at.v);
+          if (changedCells(thumbOf(bytes(r.gray), r.w, r.h), at.m, [cur, cur]) >= 3) {
+            report.readings.push({ t: r.t, image: r.image?.split("/").pop(), chars: [], notes: [], wrongFrame: true });
+            continue;
+          }
+        }
         const gray = bytes(r.gray);
         // A frame that came back black (it happens near the start) is no reading.
         let sum = 0;

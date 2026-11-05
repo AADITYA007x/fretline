@@ -255,9 +255,9 @@ export async function fakeLessonInfo(page: Page, captionsJson3: string): Promise
  * overview, a made-up pass through the video (one tab page shown from 2 s
  * to 12 s with the cursor moving across), the real tab area, and a stand-in reader.
  */
-export async function fakeTabScan(page: Page, overviewB64: string, _ocr: unknown, opts: { noTab?: boolean } = {}): Promise<void> {
+export async function fakeTabScan(page: Page, overviewB64: string, _ocr: unknown, opts: { noTab?: boolean; staleBefore?: number } = {}): Promise<void> {
   await page.addInitScript(
-    ({ gray, noTab }) => {
+    ({ gray, noTab, staleBefore }) => {
       const listeners: Record<string, ((x: unknown) => void)[]> = {};
       const emit = (ev: string, x: unknown) => (listeners[ev] ?? []).forEach((f) => f(x));
       const b64 = (arr: Uint8Array) => btoa(String.fromCharCode(...arr));
@@ -282,13 +282,24 @@ export async function fakeTabScan(page: Page, overviewB64: string, _ocr: unknown
           const g = noTab ? btoa("Z".repeat(640 * 360)) : gray; // flat grey, no tab
           return { width: 640, height: 360, durationSec: 14, frames: [0, 1, 2].map((k) => ({ t: 3 + k * 3, w: 640, h: 360, gray: g })) };
         },
-        features: async ({ videoId }: { videoId: string }) => {
+        features: async ({ videoId, rect }: { videoId: string; rect: { x: number; y: number; w: number; h: number } }) => {
           w.__scanCalls.push("features");
+          // the tab area's 64×12 thumbnail, as the phone measures it
+          const all = Uint8Array.from(atob(gray), (c) => c.charCodeAt(0));
+          const thumb = new Uint8Array(64 * 12);
+          const sum = new Float64Array(64 * 12);
+          const cnt = new Uint32Array(64 * 12);
+          for (let y = 0; y < rect.h; y += 2)
+            for (let x = 0; x < rect.w; x++) {
+              const k = Math.min(11, Math.floor((y * 12) / rect.h)) * 64 + Math.min(63, Math.floor((x * 64) / rect.w));
+              sum[k] += all[(rect.y + y) * 640 + rect.x + x];
+              cnt[k]++;
+            }
+          for (let k = 0; k < thumb.length; k++) thumb[k] = cnt[k] ? sum[k] / cnt[k] : 0;
           const frames = [];
           for (let t = 0; t < 14; t += 0.25) {
             const tab = t >= 2 && t < 12;
-            const m = new Uint8Array(256).fill(tab ? 232 : 60);
-            if (tab) for (let k = 0; k < 20; k++) m[(k * 13) % 256] = 70;
+            const m = tab ? thumb : new Uint8Array(64 * 12).fill(60);
             const u = new Uint8Array(480).fill(128);
             if (tab) {
               const x = Math.round(((t - 2) / 10) * 479);
@@ -306,7 +317,13 @@ export async function fakeTabScan(page: Page, overviewB64: string, _ocr: unknown
           for (let y = 0; y < rect.h; y++) area.set(all.subarray((rect.y + y) * 640 + rect.x, (rect.y + y) * 640 + rect.x + rect.w), y * rect.w);
           let s = "";
           for (const v of area) s += String.fromCharCode(v);
-          return { results: times.map((t) => ({ t, x: rect.x, y: rect.y, w: rect.w, h: rect.h, gray: btoa(s), image: "/data/fake/tab.jpg" })) };
+          // (staleBefore: like a phone handing back an older frame — a blank one here)
+          const stale = (t: number) => {
+            let b = "";
+            for (let i = 0; i < rect.w * rect.h; i++) b += String.fromCharCode(i % 97 === 0 ? 40 : 235);
+            return t < staleBefore ? btoa(b) : btoa(s);
+          };
+          return { results: times.map((t) => ({ t, x: rect.x, y: rect.y, w: rect.w, h: rect.h, gray: stale(t), image: "/data/fake/tab.jpg" })) };
         },
         // Stands in for ML Kit: every mark in the neat row reads as a digit.
         read: async ({ gray: g, w: lw, h: lh }: { gray: string; w: number; h: number }) => {
@@ -375,6 +392,6 @@ export async function fakeTabScan(page: Page, overviewB64: string, _ocr: unknown
         },
       };
     },
-    { gray: overviewB64, noTab: opts.noTab ?? false },
+    { gray: overviewB64, noTab: opts.noTab ?? false, staleBefore: opts.staleBefore ?? 0 },
   );
 }

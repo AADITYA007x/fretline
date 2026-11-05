@@ -401,6 +401,22 @@ test.describe("reading tab from the video", () => {
     expect(await page.evaluate(() => (window as any).__scanHeight)).toBe(720);
   });
 
+  test("pictures that aren't the page shown at that moment are thrown away", async ({ page }) => {
+    await fakeSupabase(page);
+    await fakeTabScan(page, gray, ocr, { staleBefore: 6 });
+    await page.addInitScript(() => ((window as any).__fretlineFakeConnection = "wifi"));
+    await page.goto("/");
+    await page.click('.tab[data-view="lessons"]');
+    await page.fill("#lesson-link", "2Lq784V-KPw");
+    await page.click('#add-lesson-form button[type="submit"]');
+    await page.click("#scan-btn");
+    await expect(page.locator("#toast")).toContainText(/Read \d+ notes/, { timeout: 15_000 });
+    const report = await page.evaluate(() => (window as any).__scanReport);
+    const wrong = report.readings.filter((r: any) => r.wrongFrame).map((r: any) => r.t);
+    expect(wrong.length).toBeGreaterThan(0);
+    expect(wrong.every((t: number) => t < 6)).toBe(true);
+  });
+
   test("a video without on-screen tab says so", async ({ page }) => {
     await fakeSupabase(page);
     await fakeTabScan(page, gray, ocr, { noTab: true });

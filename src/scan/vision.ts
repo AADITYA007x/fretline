@@ -180,6 +180,24 @@ export function changedCells(a: Uint8Array, b: Uint8Array, ignore: (number | nul
   return cols;
 }
 
+/**
+ * The small picture the page-change check uses (THUMB_W×THUMB_H block
+ * averages of every other row), made from a grey tab area.
+ */
+export function thumbOf(gray: Uint8Array, w: number, h: number): Uint8Array {
+  const sum = new Float64Array(THUMB_W * THUMB_H);
+  const n = new Uint32Array(THUMB_W * THUMB_H);
+  for (let y = 0; y < h; y += 2) {
+    const my = Math.min(THUMB_H - 1, Math.floor((y * THUMB_H) / h));
+    for (let x = 0; x < w; x++) {
+      const k = my * THUMB_W + Math.min(THUMB_W - 1, Math.floor((x * THUMB_W) / w));
+      sum[k] += gray[y * w + x];
+      n[k]++;
+    }
+  }
+  return Uint8Array.from(sum, (v, i) => (n[i] ? v / n[i] : 0));
+}
+
 /** Is there tab in this frame at all? (light background with dark marks) */
 export function looksLikeTab(f: FrameFeatures): boolean {
   let light = 0;

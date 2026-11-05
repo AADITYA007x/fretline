@@ -482,6 +482,27 @@ export function findAll(gray: Uint8Array, w: number, h: number, lines: number[])
     }
     tokens.push({ x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1, string: b.string, marks: 1, parts: [{ x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1 }] });
   }
+  // A short upright line between two stacked digits (some tabs join a
+  // chord's notes with one) is not a "1" on the string in between.
+  const isBar = (t: Token) => {
+    if (t.marks !== 1 || t.x1 - t.x0 + 1 > Math.max(3, sp * 0.22)) return false;
+    let minW = Infinity;
+    let maxW = 0;
+    for (let y = t.y0; y <= t.y1; y++) {
+      let n = 0;
+      for (let x = t.x0; x <= t.x1; x++) n += m[y * w + x];
+      minW = Math.min(minW, n);
+      maxW = Math.max(maxW, n);
+    }
+    return maxW - minW <= 1;
+  };
+  for (let i = tokens.length - 1; i >= 0; i--) {
+    const t = tokens[i];
+    if (!isBar(t)) continue;
+    const cx = (t.x0 + t.x1) / 2;
+    const near = (s: number) => tokens.some((o) => o !== t && o.string === s && Math.abs((o.x0 + o.x1) / 2 - cx) <= sp * 0.5);
+    if (near(t.string - 1) && near(t.string + 1)) tokens.splice(i, 1);
+  }
   // Two pieces close enough to be one digit (a thin "0" broken in two):
   // one digit, not a two-digit fret.
   for (const t of tokens)

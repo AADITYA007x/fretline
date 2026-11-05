@@ -34,6 +34,10 @@ export interface TabScanPlugin {
   areas(o: { videoId: string; rect: Rect; times: number[] }): Promise<{
     results: { t: number; x: number; y: number; w: number; h: number; gray: string; image: string }[];
   }>;
+  /** Same as areas, from frames decoded one by one (exact). */
+  areasExact(o: { videoId: string; rect: Rect; times: number[] }): Promise<{
+    results: { t: number; x: number; y: number; w: number; h: number; gray: string; image: string }[];
+  }>;
   read(o: { gray: string; w: number; h: number }): Promise<{ chars: OcrChar[] }>;
   /** The lesson's sound as 16-bit mono samples, sent in "audio" events. */
   audio(o: { videoId: string; rate: number }): Promise<{ rate: number; samples: number }>;
