@@ -279,6 +279,46 @@ test.describe("reading tab from the video", () => {
     await expect.poll(() => ((db.fretline_tab_fixes[0]?.fixes as any)?.screen?.notes?.length ?? 0), { timeout: 10_000 }).toBeGreaterThan(15);
   });
 
+  test("note by note: stops on each note showing it, then plays it; 0.25× speed", async ({ page }, info) => {
+    await fakeSupabase(page);
+    await fakeTabScan(page, gray, ocr);
+    await page.addInitScript(() => ((window as any).__fretlineFakeConnection = "wifi"));
+    await page.goto("/");
+    await page.click('.tab[data-view="lessons"]');
+    await page.fill("#lesson-link", "2Lq784V-KPw");
+    await page.click('#add-lesson-form button[type="submit"]');
+    await page.click("#scan-btn");
+    await expect(page.locator("#toast")).toContainText(/Read \d+ notes/, { timeout: 15_000 });
+    await page.waitForFunction(() => (window as any).__yt);
+
+    await page.selectOption("#lesson-speed", "0.25");
+    expect(await page.evaluate(() => (window as any).__yt.rate)).toBe(0.25);
+    await page.selectOption("#lesson-speed", "1");
+
+    await page.click("#lesson-step");
+    await expect(page.locator("#lesson-step")).toHaveAttribute("aria-pressed", "true");
+    await page.evaluate(() => (window as any).__yt.seekTo(3));
+    await page.click("#lesson-play");
+    // It stops on the next note and says what it is…
+    await expect(page.locator("#strip-tip.step-tip")).toContainText(/string/, { timeout: 5000 });
+    await expect(page.locator("#lesson-play")).not.toHaveClass(/is-playing/);
+    const held = await page.evaluate(() => {
+      const yt = (window as any).__yt;
+      yt.log = [];
+      const set = yt.set.bind(yt);
+      yt.set = (st: number) => {
+        yt.log.push({ st, t: yt.t, at: Date.now() });
+        set(st);
+      };
+      return yt.t;
+    });
+    await shot(page, "30-note-by-note", info.project.name);
+    // …then plays on by itself after about 2 s, and stops on the next one.
+    await expect.poll(() => page.evaluate(() => (window as any).__yt.log.map((e: any) => e.st).join(",")), { timeout: 6000 }).toMatch(/^1,2/);
+    const log = await page.evaluate(() => (window as any).__yt.log);
+    expect(log[1].t).toBeGreaterThan(held);
+  });
+
   test("on mobile data: asks first; waiting for Wi-Fi starts it later", async ({ page }) => {
     await fakeSupabase(page);
     await fakeTabScan(page, gray, ocr);

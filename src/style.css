@@ -1212,7 +1212,7 @@ html.entry .app {
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
   margin: 6px 0 14px;
 }
 
@@ -1224,6 +1224,18 @@ html.entry .app {
   background: none;
   color: var(--bone-dim);
   font: 600 14px var(--mono);
+}
+
+.ctl.step {
+  min-width: 52px;
+  padding: 0 8px;
+  font-size: 13px;
+}
+
+.ctl.step[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #1b130d;
 }
 
 .ctl.speed {
@@ -1492,6 +1504,13 @@ html.entry .app {
   font-size: 14px;
   color: var(--bone-dim);
   font-style: italic;
+}
+
+/* note by note: what to play, while it waits */
+.strip-tip.step-tip {
+  font: 600 15px var(--ui);
+  font-style: normal;
+  color: var(--accent-bright);
 }
 
 /* --- Note editor ---------------------------------------------------------------------------- */

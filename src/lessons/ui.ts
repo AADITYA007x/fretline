@@ -21,7 +21,7 @@ import {
 import { LessonPlayer, STATE } from "./yt-player";
 import { notesFromSpeech } from "../tabs/speech";
 import { fromSpoken } from "../tabs/tab";
-import { clearTab, initStrip, reloadFixes, render as renderStrip, renderPicture, setTab, type StripControls } from "../tabs/strip";
+import { clearTab, initStrip, reloadFixes, render as renderStrip, renderPicture, setStepMode, setTab, stepCancelHold, stepMode, stepTick, type StripControls } from "../tabs/strip";
 import { initScanUi, renderScanButton } from "../scan/ui";
 import { tabScan } from "../scan/native";
 
@@ -364,6 +364,7 @@ function tick(): void {
     renderTicks();
   }
   renderSaying(t);
+  stepTick(t);
   renderStrip(t);
   renderPicture(t);
   highlightChapter(t);
@@ -421,6 +422,7 @@ function jump(sec: number): void {
 
 function togglePlay(): void {
   if (!player) return;
+  stepCancelHold();
   if (playing) player.pause();
   else player.play();
 }
@@ -448,6 +450,8 @@ function closeLesson(fromCode = true): void {
   current = null;
   lines = [];
   clearTab();
+  setStepMode(false);
+  $("lesson-step").setAttribute("aria-pressed", "false");
   setScreen(false);
   if (fromCode) removeStep("lesson");
   renderList();
@@ -482,6 +486,12 @@ export function initLessons(): void {
   });
   $("lesson-back").addEventListener("click", () => closeLesson());
   $("lesson-play").addEventListener("click", togglePlay);
+  $("lesson-step").addEventListener("click", () => {
+    const on = !stepMode();
+    setStepMode(on);
+    $("lesson-step").setAttribute("aria-pressed", String(on));
+    bus.emit("toast", on ? "Note by note: it waits 2 seconds on each note, then plays it" : "Note by note off");
+  });
   $("lesson-back5").addEventListener("click", () => player?.seek(player.time() - 5));
   $("lesson-fwd5").addEventListener("click", () => player?.seek(player.time() + 5));
   $<HTMLSelectElement>("lesson-speed").addEventListener("change", (e) => {

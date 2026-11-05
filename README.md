@@ -16,6 +16,7 @@ After that, the app shows a banner when a new version is out.
 
 **v0.4 – Tab read from the video**
 
+- v0.4.8: **1 by 1** (note by note): stops 2 s on each note showing its string and fret, then plays it up to the next; speed down to 0.25×
 - v0.4.7: symbols from the video's tab: x (muted hits), slides (/ \\), hammer-on/pull-off arcs (up or down the neck), harmonics <12>, strum arrows ↑↓ by their chord; a digit touching its stem is no longer dropped
 - v0.4.6: the strip is one continuous tape that glides with the video across page changes (thin line where a new page starts, "page 4 of 20" in the label); no more "22"/"11" from one digit (wider gaps in the row, a single mark is a single digit)
 - v0.4.5: new digit reader: the app finds each digit sitting on a staff line itself (skipping X's and slide marks), lays them out in a clean row and has ML Kit read that row, then puts the answers back; on Believer's pictures this finds ~4× more digits than reading the tab directly (`scripts/glyph-check.ts` replays a reading-details zip)

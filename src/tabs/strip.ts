@@ -203,8 +203,82 @@ export function render(t: number): void {
     el.classList.toggle("done", i <= col);
     el.classList.toggle("now", i === col);
   });
+  if (stepOn) return; // the tip shows the note being held
   const tip = col >= 0 && controls ? controls.saidAt(p.columns[col].t) : "";
   $("strip-tip").textContent = tip ? `“${tip}”` : "";
+}
+
+// --- Note by note ------------------------------------------------------------------------
+// Stops on each note for a moment (showing which string and fret), then
+// plays it until the next one: look, then hear.
+
+const HOLD_MS = 2000;
+let stepOn = false;
+let stepAt = -1;
+let stepPrevT = -1;
+let holdTimer: ReturnType<typeof setTimeout> | undefined;
+
+const ORDINAL = ["", "1st", "2nd", "3rd", "4th", "5th", "6th"];
+
+function describeColumn(c: { notes: TabNote[] }): string {
+  const parts = c.notes
+    .slice()
+    .sort((a, b) => b.string - a.string)
+    .map((n) => {
+      const name = `${STRING_NAMES[n.string]} string (${ORDINAL[n.string]})`;
+      if (n.tech === "mute") return `${name}: muted hit (x)`;
+      const how = n.tech ? ` · ${TECH_NAME[n.tech].toLowerCase()}` : "";
+      return `${name}: ${n.fret === 0 ? "open" : `fret ${n.fret}`}${how}`;
+    });
+  const strum = c.notes.find((n) => n.strum)?.strum;
+  return (strum ? `Strum ${strum === "up" ? "↑" : "↓"} · ` : "") + parts.join(" + ");
+}
+
+export function stepMode(): boolean {
+  return stepOn;
+}
+
+export function setStepMode(on: boolean): void {
+  stepOn = on;
+  clearTimeout(holdTimer);
+  holdTimer = undefined;
+  stepAt = controls ? controls.time() - 0.01 : -1;
+  $("tab-strip").classList.toggle("stepping", on);
+  if (!on) $("strip-tip").classList.remove("step-tip");
+}
+
+/** You pressed play (or pause) yourself: drop any hold in progress. */
+export function stepCancelHold(): void {
+  clearTimeout(holdTimer);
+  holdTimer = undefined;
+}
+
+/** Called every frame with the video time. */
+export function stepTick(t: number): void {
+  if (!stepOn || !controls) return;
+  const jumped = stepPrevT >= 0 && Math.abs(t - stepPrevT) > 1;
+  stepPrevT = t;
+  if (holdTimer) return;
+  if (!controls.isPlaying() || jumped) {
+    stepAt = t - 0.01;
+    return;
+  }
+  // The next note after the one we last stopped on.
+  let next: { t: number; notes: TabNote[] } | null = null;
+  for (const p of phrases)
+    for (const c of p.columns)
+      if (c.t > stepAt + 0.02 && (!next || c.t < next.t)) next = c;
+  if (!next || t < next.t) return;
+  stepAt = next.t;
+  controls.pause();
+  controls.seek(next.t);
+  const tip = $("strip-tip");
+  tip.textContent = describeColumn(next);
+  tip.classList.add("step-tip");
+  holdTimer = setTimeout(() => {
+    holdTimer = undefined;
+    if (stepOn) controls?.play();
+  }, HOLD_MS);
 }
 
 // --- The tab picture from the video -------------------------------------------------------
