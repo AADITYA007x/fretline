@@ -84,6 +84,7 @@ for (const p of pages) {
 }
 
 // 3. OCR the pages (Tesseract) and print the notes
+const timed: { t: number; page: number; notes: { string: number; fret: number }[] }[] = [];
 if (process.env.OCR !== "0") {
   const dir = mkdtempSync(join(tmpdir(), "scan-"));
   for (const p of pages.slice(0, Number(process.env.PAGES ?? 3))) {
@@ -107,6 +108,9 @@ if (process.env.OCR !== "0") {
     const cs = columns(charsToNotes(chars, lines), staff.spacing * scale);
     const ts = timeColumns(cs, p, rect);
     console.log(`  page @${p.start.toFixed(1)}s: ` + cs.map((col, i) => `${ts[i].t.toFixed(1)}:${col.map((n) => `${n.string}/${n.fret}`).join("+")}`).join(" "));
+    ts.forEach((t, i) => timed.push({ t: t.t, page: p.start, notes: cs[i].map((n) => ({ string: n.string, fret: n.fret })) }));
   }
   console.log("cleaned crops in", dir);
 }
+
+if (process.env.TIMES) writeFileSync(process.env.TIMES, JSON.stringify(timed));

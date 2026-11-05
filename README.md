@@ -14,6 +14,11 @@ After that, the app shows a banner when a new version is out.
 
 ## What's in it
 
+**v0.5 – In time with the sound**
+
+- v0.5.0: after reading the tab, the lesson's sound is downloaded once (small, deleted after) and each note is lined up with its pluck: one slide for the video found by matching the notes' pitches to what starts sounding (capo found too), refined page by page, then each note moved onto the pluck next to it (`src/scan/onsets.ts`; `scripts/sync-check.ts` checks a recording). 1 by 1 stops just before each note
+- Tested on a screen recording of the Love Story lesson: the reader's cursor times were 0.2 s late; slides of +0.7, −1.2 and +2.5 s put on purpose were all found back to within 0.06 s (`tests/unit/onsets.test.ts`, sound features only, no audio in the repo)
+
 **v0.4 – Tab read from the video**
 
 - v0.4.11: every tab page is read (look-alike pages had been sharing one reading, so a 0 could show as a 2); 1 by 1 pauses under a card that names the note (no jumping back, no buffering); slides drawn as a rising/falling line from the note before

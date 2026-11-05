@@ -45,6 +45,7 @@ import org.schabi.newpipe.extractor.services.youtube.ItagItem;
 import org.schabi.newpipe.extractor.services.youtube.YoutubeParsingHelper;
 import org.schabi.newpipe.extractor.stream.DeliveryMethod;
 import org.schabi.newpipe.extractor.stream.StreamInfo;
+import org.schabi.newpipe.extractor.stream.AudioStream;
 import org.schabi.newpipe.extractor.stream.VideoStream;
 
 /**
@@ -247,6 +248,213 @@ public class TabScanPlugin extends Plugin {
         });
     }
 
+    // --- The sound: to line the notes up with the plucks ---------------------------
+
+    /** The smallest sound-only stream Android can decode (AAC in mp4 first). */
+    private AudioStream pickAudio(String videoId) throws Exception {
+        initNewPipe();
+        StreamInfo info = StreamInfo.getInfo(ServiceList.YouTube, "https://www.youtube.com/watch?v=" + videoId);
+        AudioStream best = null;
+        int bestScore = Integer.MIN_VALUE;
+        for (AudioStream a : info.getAudioStreams()) {
+            if (!a.isUrl() || a.getDeliveryMethod() != DeliveryMethod.PROGRESSIVE_HTTP) continue;
+            boolean m4a = a.getFormat() == org.schabi.newpipe.extractor.MediaFormat.M4A;
+            int kbps = Math.max(1, a.getAverageBitrate());
+            // small is fine (only the plucks matter); m4a decodes everywhere
+            int score = (m4a ? 1000 : 0) - kbps;
+            if (score > bestScore) {
+                bestScore = score;
+                best = a;
+            }
+        }
+        if (best == null) throw new IOException("No sound stream for " + videoId);
+        return best;
+    }
+
+    /**
+     * Download the lesson's sound (small, deleted after), decode it and send
+     * it to the app as 16-bit mono samples at `rate` per second, in "audio"
+     * events of a few seconds each.
+     */
+    @PluginMethod
+    public void audio(PluginCall call) {
+        String videoId = call.getString("videoId");
+        int rate = call.getInt("rate", 8000);
+        cancelled.remove(videoId);
+        worker.execute(() -> {
+            File part = new File(scanDir(), videoId + ".apart");
+            File file = new File(scanDir(), videoId + ".audio");
+            try {
+                if (!file.isFile() || file.length() == 0) {
+                    AudioStream a = pickAudio(videoId);
+                    ItagItem itag = a.getItagItem();
+                    long total = itag != null ? itag.getContentLength() : -1;
+                    String url = a.getContent();
+                    try (OutputStream out = new FileOutputStream(part)) {
+                        long pos = 0;
+                        int rn = 0;
+                        while (total <= 0 || pos < total) {
+                            if (Boolean.TRUE.equals(cancelled.get(videoId))) throw new IOException("Stopped");
+                            long end = pos + CHUNK_BYTES - 1;
+                            if (total > 0) end = Math.min(end, total - 1);
+                            long wanted = end - pos + 1;
+                            java.io.ByteArrayOutputStream piece = new java.io.ByteArrayOutputStream((int) wanted);
+                            long got = -1;
+                            IOException last = null;
+                            for (int attempt = 0; attempt < 5 && got < 0; attempt++) {
+                                if (attempt > 0) Thread.sleep(1000L << Math.min(attempt - 1, 3));
+                                piece.reset();
+                                try {
+                                    got = fetchRange(url, pos, end, rn++, piece);
+                                } catch (IOException e) {
+                                    last = e;
+                                }
+                            }
+                            if (got < 0) throw last != null ? last : new IOException("Sound download failed");
+                            piece.writeTo(out);
+                            pos += got;
+                            progress(videoId, "sound", pos, total);
+                            if (got == 0 || got < wanted) break;
+                        }
+                    }
+                    if (!part.renameTo(file)) throw new IOException("Could not save the sound");
+                }
+                long samples = decodeAudio(videoId, file, rate);
+                JSObject out = new JSObject();
+                out.put("rate", rate);
+                out.put("samples", samples);
+                call.resolve(out);
+            } catch (Exception e) {
+                Log.w(TAG, "audio", e);
+                call.reject(describe(e));
+            } finally {
+                //noinspection ResultOfMethodCallIgnored
+                part.delete();
+                //noinspection ResultOfMethodCallIgnored
+                file.delete();
+            }
+        });
+    }
+
+    /** Decode to mono at `rate` (averaging down), sending 5 s at a time. Returns the sample count. */
+    private long decodeAudio(String videoId, File file, int rate) throws Exception {
+        MediaExtractor ex = new MediaExtractor();
+        MediaCodec dec = null;
+        try {
+            ex.setDataSource(file.getAbsolutePath());
+            int track = -1;
+            MediaFormat fmt = null;
+            for (int i = 0; i < ex.getTrackCount(); i++) {
+                MediaFormat f = ex.getTrackFormat(i);
+                String mime = f.getString(MediaFormat.KEY_MIME);
+                if (mime != null && mime.startsWith("audio/")) {
+                    track = i;
+                    fmt = f;
+                    break;
+                }
+            }
+            if (track < 0) throw new IOException("No sound in the download");
+            ex.selectTrack(track);
+            dec = MediaCodec.createDecoderByType(fmt.getString(MediaFormat.KEY_MIME));
+            dec.configure(fmt, null, null, 0);
+            dec.start();
+            int srcRate = fmt.getInteger(MediaFormat.KEY_SAMPLE_RATE);
+            int channels = fmt.getInteger(MediaFormat.KEY_CHANNEL_COUNT);
+            short[] chunk = new short[rate * 5];
+            int fill = 0;
+            long sent = 0;
+            double step = (double) srcRate / rate;
+            double acc = 0;
+            int accN = 0;
+            double nextAt = step;
+            long srcIndex = 0;
+            MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
+            boolean inputDone = false;
+            boolean outputDone = false;
+            while (!outputDone) {
+                if (Boolean.TRUE.equals(cancelled.get(videoId))) throw new IOException("Stopped");
+                if (!inputDone) {
+                    int in = dec.dequeueInputBuffer(10_000);
+                    if (in >= 0) {
+                        ByteBuffer buf = dec.getInputBuffer(in);
+                        int size = buf == null ? -1 : ex.readSampleData(buf, 0);
+                        if (size < 0) {
+                            dec.queueInputBuffer(in, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+                            inputDone = true;
+                        } else {
+                            dec.queueInputBuffer(in, 0, size, ex.getSampleTime(), 0);
+                            ex.advance();
+                        }
+                    }
+                }
+                int outIx = dec.dequeueOutputBuffer(info, 10_000);
+                if (outIx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                    MediaFormat of = dec.getOutputFormat();
+                    srcRate = of.getInteger(MediaFormat.KEY_SAMPLE_RATE);
+                    channels = of.getInteger(MediaFormat.KEY_CHANNEL_COUNT);
+                    step = (double) srcRate / rate;
+                    nextAt = srcIndex + step;
+                } else if (outIx >= 0) {
+                    ByteBuffer out = dec.getOutputBuffer(outIx);
+                    if (out != null && info.size > 0) {
+                        out.position(info.offset);
+                        out.limit(info.offset + info.size);
+                        java.nio.ShortBuffer sb = out.order(java.nio.ByteOrder.nativeOrder()).asShortBuffer();
+                        int frames = sb.remaining() / Math.max(1, channels);
+                        for (int f = 0; f < frames; f++) {
+                            int sum = 0;
+                            for (int c = 0; c < channels; c++) sum += sb.get();
+                            acc += (double) sum / channels;
+                            accN++;
+                            srcIndex++;
+                            if (srcIndex >= nextAt) {
+                                chunk[fill++] = (short) Math.max(-32768, Math.min(32767, Math.round(acc / accN)));
+                                acc = 0;
+                                accN = 0;
+                                nextAt += step;
+                                if (fill == chunk.length) {
+                                    sendAudio(videoId, sent, chunk, fill);
+                                    sent += fill;
+                                    fill = 0;
+                                }
+                            }
+                        }
+                    }
+                    dec.releaseOutputBuffer(outIx, false);
+                    if ((info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) outputDone = true;
+                }
+            }
+            if (fill > 0) {
+                sendAudio(videoId, sent, chunk, fill);
+                sent += fill;
+            }
+            return sent;
+        } finally {
+            if (dec != null) {
+                try {
+                    dec.stop();
+                } catch (Exception ignored) {
+                    // already stopped
+                }
+                dec.release();
+            }
+            ex.release();
+        }
+    }
+
+    private void sendAudio(String videoId, long start, short[] s, int n) {
+        byte[] b = new byte[n * 2];
+        for (int i = 0; i < n; i++) {
+            b[2 * i] = (byte) (s[i] & 0xff);
+            b[2 * i + 1] = (byte) ((s[i] >> 8) & 0xff);
+        }
+        JSObject e = new JSObject();
+        e.put("videoId", videoId);
+        e.put("start", start);
+        e.put("pcm", Base64.encodeToString(b, Base64.NO_WRAP));
+        notifyListeners("audio", e);
+    }
+
     /** One ranged request (the way YouTube's own player asks), written to out. */
     private long fetchRange(String url, long start, long end, int rn, OutputStream out) throws IOException {
         String requestUrl = url + "&range=" + start + "-" + end + "&rn=" + rn;
@@ -303,6 +511,10 @@ public class TabScanPlugin extends Plugin {
         videoFile(videoId).delete();
         //noinspection ResultOfMethodCallIgnored
         new File(scanDir(), videoId + ".part").delete();
+        //noinspection ResultOfMethodCallIgnored
+        new File(scanDir(), videoId + ".audio").delete();
+        //noinspection ResultOfMethodCallIgnored
+        new File(scanDir(), videoId + ".apart").delete();
         picked.remove(videoId);
         call.resolve();
     }

@@ -349,6 +349,24 @@ export async function fakeTabScan(page: Page, overviewB64: string, _ocr: unknown
         deleteVideo: async () => {
           w.__scanCalls.push("deleteVideo");
         },
+        // The sound: 14 s of quiet with a click every half second.
+        audio: async ({ videoId, rate }: { videoId: string; rate: number }) => {
+          w.__scanCalls.push("audio");
+          const n = 14 * rate;
+          for (let start = 0; start < n; start += rate * 5) {
+            const len = Math.min(rate * 5, n - start);
+            const b = new Uint8Array(len * 2);
+            for (let i = 0; i < len; i++) {
+              const v = (start + i) % (rate / 2) < 40 ? 12000 : 0;
+              b[2 * i] = v & 0xff;
+              b[2 * i + 1] = (v >> 8) & 0xff;
+            }
+            let str = "";
+            for (const x of b) str += String.fromCharCode(x);
+            emit("audio", { videoId, start, pcm: btoa(str) });
+          }
+          return { rate, samples: n };
+        },
         saveReport: async ({ json }: { json: string }) => {
           (w as any).__scanReport = JSON.parse(json);
         },

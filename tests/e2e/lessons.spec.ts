@@ -245,7 +245,7 @@ test.describe("reading tab from the video", () => {
     await page.click("#scan-btn");
     await expect(page.locator("#scan-row")).toBeVisible();
     await expect(page.locator("#toast")).toContainText(/Read \d+ notes from the video's tab/, { timeout: 15_000 });
-    expect(await page.evaluate(() => (window as any).__scanCalls)).toEqual(["download", "overview", "features", "areas", "deleteVideo"]);
+    expect(await page.evaluate(() => (window as any).__scanCalls)).toEqual(["download", "overview", "features", "areas", "audio", "deleteVideo"]);
     await expect(page.locator("#scan-btn")).toBeHidden();
 
     await page.waitForFunction(() => (window as any).__yt);
@@ -272,6 +272,8 @@ test.describe("reading tab from the video", () => {
     // Each page read at three moments; the details can be sent for checking.
     const report = await page.evaluate(() => (window as any).__scanReport);
     expect(report.readings.length).toBe(report.merged.length * 3);
+    // the sound was listened to (here it's only clicks, so the times stay)
+    expect(report.sync).toBeTruthy();
     await page.click("#strip-picture");
     await page.click("#strip-share");
     expect(await page.evaluate(() => (window as any).__shared)).toBe(true);

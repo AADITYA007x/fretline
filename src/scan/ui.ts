@@ -15,14 +15,15 @@ const PHASE: Record<Step["phase"], string> = {
   download: "Downloading the video (deleted after)",
   look: "Looking through the video",
   read: "Reading the tab",
+  sound: "Listening for the plucks",
 };
 
 function showStep(s: Step): void {
   $("scan-row").hidden = false;
   $("scan-text").textContent = `${PHASE[s.phase]}${s.detail ? ` · ${s.detail}` : ` · ${Math.round(s.fraction * 100)}%`}`;
-  // Download ~45% of the work, looking ~45%, reading the rest.
-  const base = s.phase === "download" ? 0 : s.phase === "look" ? 0.45 : 0.9;
-  const span = s.phase === "read" ? 0.1 : 0.45;
+  // Download ~40% of the work, looking ~35%, reading ~15%, the sound the rest.
+  const base = { download: 0, look: 0.4, read: 0.75, sound: 0.9 }[s.phase];
+  const span = { download: 0.4, look: 0.35, read: 0.15, sound: 0.1 }[s.phase];
   $("scan-fill").style.width = `${((base + s.fraction * span) * 100).toFixed(1)}%`;
 }
 

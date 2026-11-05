@@ -34,6 +34,8 @@ export interface StripControls {
    * (`text`), or take the card away (null) and carry on playing (`resume`).
    */
   hold(text: string | null, ms: number, resume?: boolean): void;
+  /** Playback speed (1 = normal). */
+  rate(): number;
 }
 
 const FINGER_MARK: Record<Finger, string> = { thumb: "T", index: "i", middle: "m", ring: "r", pinky: "p" };
@@ -253,6 +255,7 @@ let stepOn = false;
 let stepAt = -1;
 let stepPrevT = -1;
 let holdTimer: ReturnType<typeof setTimeout> | undefined;
+let resuming = false;
 
 const ORDINAL = ["", "1st", "2nd", "3rd", "4th", "5th", "6th"];
 
@@ -298,15 +301,21 @@ export function stepTick(t: number): void {
   stepPrevT = t;
   if (holdTimer) return;
   if (!controls.isPlaying() || jumped) {
-    stepAt = t - 0.01;
+    // (just after a wait it's starting up again: the note we stopped
+    // before is the one to hear now, not to stop on again)
+    if (!resuming || jumped) stepAt = t - 0.01;
     return;
   }
+  resuming = false;
   // The next note after the one we last stopped on.
   let next: { t: number; notes: TabNote[] } | null = null;
   for (const p of phrases)
     for (const c of p.columns)
       if (c.t > stepAt + 0.02 && (!next || c.t < next.t)) next = c;
-  if (!next || t < next.t) return;
+  // Stop just before the note: pausing takes a moment to happen, and the
+  // note should be heard after the wait, not half before it.
+  const lead = 0.12 * controls.rate();
+  if (!next || t < next.t - lead) return;
   stepAt = next.t;
   const text = describeColumn(next);
   controls.hold(text, HOLD_MS);
@@ -316,6 +325,7 @@ export function stepTick(t: number): void {
   holdTimer = setTimeout(() => {
     holdTimer = undefined;
     // Now play it (up to the next note).
+    resuming = true;
     controls?.hold(null, 0);
   }, HOLD_MS);
 }

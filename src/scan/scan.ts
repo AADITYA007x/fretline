@@ -4,6 +4,7 @@
 import type { TabNote } from "../tabs/tab";
 import { tabScan, type ScanProgress } from "./native";
 import { notesFromArea } from "./glyphs";
+import { analyzeSound, syncNotes, type SyncReport } from "./onsets";
 import {
   bytes,
   columns,
@@ -35,7 +36,7 @@ export interface ScanResult {
   none?: string;
 }
 
-export type Step = { phase: "download" | "look" | "read"; fraction: number; detail?: string };
+export type Step = { phase: "download" | "look" | "read" | "sound"; fraction: number; detail?: string };
 
 let running: string | null = null;
 
@@ -47,6 +48,43 @@ export async function stopScan(videoId: string): Promise<void> {
   await tabScan.cancel({ videoId }).catch(() => {});
 }
 
+/**
+ * Download the sound, find when each note is really plucked, and move the
+ * notes there (in place). Any trouble: the notes keep the cursor's times.
+ */
+async function syncWithSound(
+  videoId: string,
+  notes: TabNote[],
+  pages: { start: number; end: number }[],
+  onStep: (s: Step) => void,
+  subs: { remove(): Promise<void> }[],
+): Promise<SyncReport | { error: string }> {
+  if (notes.length < 8) return { error: "too few notes" };
+  try {
+    onStep({ phase: "sound", fraction: 0 });
+    const RATE = 8000;
+    const parts: { start: number; pcm: Int16Array }[] = [];
+    subs.push(
+      await tabScan.addListener("audio", (b) => {
+        if (b.videoId !== videoId) return;
+        const raw = bytes(b.pcm);
+        parts.push({ start: b.start, pcm: new Int16Array(raw.buffer, raw.byteOffset, raw.length >> 1) });
+      }),
+    );
+    const { samples } = await tabScan.audio({ videoId, rate: RATE });
+    await new Promise((r) => setTimeout(r, 300)); // events can trail the call
+    const pcm = new Float32Array(samples);
+    for (const p of parts) for (let i = 0; i < p.pcm.length && p.start + i < samples; i++) pcm[p.start + i] = p.pcm[i] / 32768;
+    onStep({ phase: "sound", fraction: 0.5, detail: "lining the notes up" });
+    await new Promise((r) => setTimeout(r, 30)); // let the progress show
+    const { times, report } = syncNotes(notes, pages, analyzeSound(pcm, RATE));
+    notes.forEach((n, i) => (n.t = times[i]));
+    return report;
+  } catch (err) {
+    return { error: (err as Error).message ?? String(err) };
+  }
+}
+
 /** Bytes to base64 (for sending a picture to the phone side). */
 function b64(a: Uint8Array): string {
   let s = "";
@@ -55,7 +93,7 @@ function b64(a: Uint8Array): string {
 }
 
 /** Bump when the reader gets better, so lessons read before can be read again. */
-export const SCAN_VERSION = 10;
+export const SCAN_VERSION = 11;
 
 export async function scanLesson(videoId: string, onStep: (s: Step) => void, maxHeight = 720): Promise<ScanResult> {
   if (running) throw new Error("Already reading another lesson's video.");
@@ -201,6 +239,8 @@ export async function scanLesson(videoId: string, onStep: (s: Step) => void, max
       });
       out.push({ start: p.start, end: p.end, image: r.image || undefined, notes: cols.length });
     });
+    // Line the notes up with the plucks in the video's sound.
+    (report as Record<string, unknown>).sync = await syncWithSound(videoId, notes, out, onStep, subs);
     await tabScan.saveReport({ videoId, json: JSON.stringify(report) }).catch(() => {});
     return { notes, pages: out };
   } finally {

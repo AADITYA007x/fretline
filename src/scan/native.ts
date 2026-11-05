@@ -5,7 +5,7 @@ import type { OcrChar, Rect } from "./vision";
 
 export interface ScanProgress {
   videoId: string;
-  phase: "download" | "look" | "read";
+  phase: "download" | "look" | "read" | "sound";
   done: number;
   total: number;
 }
@@ -35,9 +35,12 @@ export interface TabScanPlugin {
     results: { t: number; x: number; y: number; w: number; h: number; gray: string; image: string }[];
   }>;
   read(o: { gray: string; w: number; h: number }): Promise<{ chars: OcrChar[] }>;
+  /** The lesson's sound as 16-bit mono samples, sent in "audio" events. */
+  audio(o: { videoId: string; rate: number }): Promise<{ rate: number; samples: number }>;
   saveReport(o: { videoId: string; json: string }): Promise<void>;
   shareReport(o: { videoId: string }): Promise<void>;
   addListener(event: "progress", fn: (p: ScanProgress) => void): Promise<PluginListenerHandle>;
+  addListener(event: "audio", fn: (b: { videoId: string; start: number; pcm: string }) => void): Promise<PluginListenerHandle>;
   addListener(event: "features", fn: (b: { videoId: string; frames: RawFeatures[] }) => void): Promise<PluginListenerHandle>;
 }
 

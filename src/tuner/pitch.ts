@@ -29,7 +29,7 @@ let fftRe2 = new Float64Array(0);
 let fftIm2 = new Float64Array(0);
 
 /** In-place radix-2 FFT (inverse when `inverse`). Length must be a power of 2. */
-function fft(re: Float64Array, im: Float64Array, inverse: boolean): void {
+export function fft(re: Float64Array, im: Float64Array, inverse: boolean): void {
   const n = re.length;
   for (let i = 1, j = 0; i < n; i++) {
     let bit = n >> 1;

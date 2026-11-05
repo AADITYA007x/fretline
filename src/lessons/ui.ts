@@ -49,6 +49,7 @@ const stripControls: StripControls = {
     const i = lineAt(lines, sec);
     return i >= 0 ? lines[i].text : "";
   },
+  rate: () => speed,
   hold: (text, ms, resume = true) => {
     const card = $("video-hold");
     if (text !== null) {
