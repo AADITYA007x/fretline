@@ -21,7 +21,7 @@ import {
 import { LessonPlayer, STATE } from "./yt-player";
 import { notesFromSpeech } from "../tabs/speech";
 import { fromSpoken } from "../tabs/tab";
-import { clearTab, initStrip, reloadFixes, render as renderStrip, renderPicture, setStepMode, setTab, stepCancelHold, stepMode, stepTick, type StripControls } from "../tabs/strip";
+import { clearTab, followAgain, initStrip, reloadFixes, render as renderStrip, renderPicture, setStepMode, setTab, stepCancelHold, stepMode, stepTick, type StripControls } from "../tabs/strip";
 import { initScanUi, renderScanButton } from "../scan/ui";
 import { tabScan } from "../scan/native";
 
@@ -48,6 +48,10 @@ const stripControls: StripControls = {
   saidAt: (sec) => {
     const i = lineAt(lines, sec);
     return i >= 0 ? lines[i].text : "";
+  },
+  softHold: (on) => {
+    player?.setRate(on ? 0.25 : speed);
+    player?.setMuted(on);
   },
 };
 
@@ -424,7 +428,10 @@ function togglePlay(): void {
   if (!player) return;
   stepCancelHold();
   if (playing) player.pause();
-  else player.play();
+  else {
+    followAgain();
+    player.play();
+  }
 }
 
 function renderSpeed(): void {

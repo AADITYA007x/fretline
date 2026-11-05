@@ -16,6 +16,7 @@ After that, the app shows a banner when a new version is out.
 
 **v0.4 – Tab read from the video**
 
+- v0.4.10: tabs that scroll (Believer) no longer repeat bars or pile notes at the end of a view; frames that came back black are fetched again (Believer's intro); 1 by 1 holds the picture silently instead of pausing (no YouTube buttons over the video); the tape stays where you scroll it, with **Back to now**
 - v0.4.9: digits joined to stems and beams (Love Story's 0s) are found; light, thin digits copied with their soft edges; bigger strum arrows
 - v0.4.8: **1 by 1** (note by note): stops 2 s on each note showing its string and fret, then plays it up to the next; speed down to 0.25×
 - v0.4.7: symbols from the video's tab: x (muted hits), slides (/ \\), hammer-on/pull-off arcs (up or down the neck), harmonics <12>, strum arrows ↑↓ by their chord; a digit touching its stem is no longer dropped

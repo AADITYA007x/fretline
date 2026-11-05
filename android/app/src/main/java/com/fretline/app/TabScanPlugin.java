@@ -339,7 +339,7 @@ public class TabScanPlugin extends Plugin {
                 JSArray results = new JSArray();
                 for (int i = 0; i < times.length(); i++) {
                     double t = times.getDouble(i);
-                    Bitmap frame = r.getFrameAtTime((long) (t * 1e6), MediaMetadataRetriever.OPTION_CLOSEST);
+                    Bitmap frame = frameAt(r, t);
                     if (frame == null) continue;
                     int x = Math.max(0, Math.min(frame.getWidth() - 1, rx));
                     int y = Math.max(0, Math.min(frame.getHeight() - 1, ry));
@@ -377,6 +377,41 @@ public class TabScanPlugin extends Plugin {
                 }
             }
         });
+    }
+
+    /**
+     * The frame at t. Near the start of some videos the exact frame comes
+     * back black; then the nearest key frame, or one a little later, is used.
+     */
+    private static Bitmap frameAt(MediaMetadataRetriever r, double t) {
+        long us = (long) (t * 1e6);
+        Bitmap b = r.getFrameAtTime(us, MediaMetadataRetriever.OPTION_CLOSEST);
+        if (b != null && !mostlyBlack(b)) return b;
+        long[] tries = { us, us + 300_000L, us + 700_000L };
+        int[] opts = { MediaMetadataRetriever.OPTION_CLOSEST_SYNC, MediaMetadataRetriever.OPTION_CLOSEST, MediaMetadataRetriever.OPTION_NEXT_SYNC };
+        for (int i = 0; i < tries.length; i++) {
+            Bitmap c = r.getFrameAtTime(tries[i], opts[i]);
+            if (c != null && !mostlyBlack(c)) {
+                if (b != null) b.recycle();
+                return c;
+            }
+            if (c != null) c.recycle();
+        }
+        return b;
+    }
+
+    private static boolean mostlyBlack(Bitmap b) {
+        int w = b.getWidth();
+        int h = b.getHeight();
+        long sum = 0;
+        int n = 0;
+        for (int y = h / 8; y < h; y += Math.max(1, h / 16))
+            for (int x = w / 16; x < w; x += Math.max(1, w / 32)) {
+                int c = b.getPixel(x, y);
+                sum += (Color.red(c) + Color.green(c) + Color.blue(c)) / 3;
+                n++;
+            }
+        return n > 0 && sum / n < 12;
     }
 
     /** Read the text in a grey picture (the app's neat row of digits) with ML Kit. */

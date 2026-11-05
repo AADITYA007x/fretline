@@ -12,6 +12,8 @@ interface YTPlayer {
   getDuration(): number;
   getPlayerState(): number;
   setPlaybackRate(rate: number): void;
+  mute?(): void;
+  unMute?(): void;
   unloadModule?(name: string): void;
   destroy(): void;
 }
@@ -128,6 +130,10 @@ export class LessonPlayer {
 
   setRate(rate: number): void {
     void this.with((p) => p.setPlaybackRate(rate));
+  }
+
+  setMuted(on: boolean): void {
+    void this.with((p) => (on ? p.mute?.() : p.unMute?.()));
   }
 
   time(): number {

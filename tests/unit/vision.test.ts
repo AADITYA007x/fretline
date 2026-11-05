@@ -169,3 +169,24 @@ describe("reading a page at three moments", () => {
     expect(mergeReadings([[], [n(2, 3, 100)], []], 6)).toEqual([n(2, 3, 100)]);
   });
 });
+
+import { isScrolling, playedHere, columns as toColumns, type Page as VPage } from "../../src/scan/vision";
+describe("tabs that scroll instead of turning pages", () => {
+  const b = JSON.parse(readFileSync("tests/fixtures/believer-pages.json", "utf8"));
+  const bPages: VPage[] = b.pages.map((p: VPage) => ({ ...p, readAt: (p.start + p.end) / 2, thumb: new Uint8Array(0) }));
+  it("Believer scrolls (the cursor stops ~3/4 across); Love Story turns pages", () => {
+    expect(isScrolling(bPages)).toBe(true);
+    expect(isScrolling(findPages(recorded("love-story")))).toBe(false);
+  });
+  it("in a scrolling view, only the part the cursor passes is played there", () => {
+    const k = 3; // view 16.3–21.3 s: cursor 0.10 → 0.72
+    const cols = toColumns(b.merged3, 18 * 0.6);
+    const keep = playedHere(cols, bPages, k, b.rect, true);
+    const xs = cols.map((c) => (c[0].x - b.rect.x) / b.rect.w);
+    xs.forEach((x, i) => {
+      if (x > 0.78) expect(keep[i]).toBe(false);
+      if (x > 0.15 && x < 0.7) expect(keep[i]).toBe(true);
+    });
+    expect(keep.some((k) => !k)).toBe(true);
+  });
+});

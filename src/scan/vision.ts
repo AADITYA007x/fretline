@@ -492,6 +492,43 @@ export function timeColumns(cols: ScreenNote[][], page: Page, rect: Rect): { t: 
   return xs.map((_, i) => ({ t: page.start + ((i + 0.5) / n) * (page.end - page.start), timed: false }));
 }
 
+/**
+ * Some videos scroll the tab instead of turning pages: each new view
+ * repeats part of the last one, and the cursor only travels part-way
+ * across before the tab moves on. Spotted by the cursor stopping short.
+ */
+export function isScrolling(pages: Page[]): boolean {
+  const ends = pages
+    .filter((p) => p.cursor.length >= 3 && p.cursor[p.cursor.length - 1].x - p.cursor[0].x > 0.2)
+    .map((p) => p.cursor[p.cursor.length - 1].x)
+    .sort((a, b) => a - b);
+  if (ends.length < 3) return false;
+  return ends[ends.length >> 1] < 0.85;
+}
+
+/**
+ * Which columns of a view are played while it's shown: in a scrolling tab,
+ * the part before the cursor's first position was played in the previous
+ * view, and the part after its last will be played in the next one.
+ */
+export function playedHere(cols: ScreenNote[][], pages: Page[], k: number, rect: Rect, scrolling: boolean): boolean[] {
+  const p = pages[k];
+  const cur = p.cursor;
+  if (!scrolling || cur.length < 3) return cols.map(() => true);
+  const first = cur[0].x;
+  const last = cur[cur.length - 1].x;
+  const prev = pages[k - 1];
+  const next = pages[k + 1];
+  const joinedBefore = !!prev && p.start - prev.end < 1;
+  const joinedAfter = !!next && next.start - p.end < 1;
+  return cols.map((c) => {
+    const x = (c.reduce((a, n) => a + n.x, 0) / c.length - rect.x) / rect.w;
+    if (joinedBefore && x < first - 0.03) return false;
+    if (joinedAfter && x > last + 0.03) return false;
+    return true;
+  });
+}
+
 /** Decode base64 bytes (from the phone) into a Uint8Array. */
 export function bytes(b64: string): Uint8Array {
   const s = atob(b64);

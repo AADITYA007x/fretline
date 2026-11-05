@@ -29,6 +29,11 @@ export interface StripControls {
   seek(sec: number): void;
   /** The caption line he was saying at a moment (the tip under the tab). */
   saidAt(sec: number): string;
+  /**
+   * Hold the picture without pausing (pausing brings up YouTube's own
+   * buttons and title over the video): silent and as slow as it goes.
+   */
+  softHold(on: boolean): void;
 }
 
 const FINGER_MARK: Record<Finger, string> = { thumb: "T", index: "i", middle: "m", ring: "r", pinky: "p" };
@@ -81,12 +86,20 @@ function pageLabel(t: number): string {
 
 let colEls: HTMLElement[] = [];
 /** Until when the tape stays where you scrolled it. */
-let handsOnUntil = 0;
+/** You scrolled the tape yourself: it stays there until "Back to now" or play. */
+let handsOn = false;
+/** Where the tape was last put by the app (to tell your scrolling from ours). */
+let placedAt = -1;
+
+export function followAgain(): void {
+  handsOn = false;
+  $("strip-follow").hidden = true;
+}
 
 /** Glide the tape so the moment t sits a third of the way in. */
 function glide(p: Phrase, t: number, upcoming: boolean): void {
   const host = $("strip-staff");
-  if (Date.now() < handsOnUntil || !colEls.length) return;
+  if (handsOn || !colEls.length) return;
   let x: number;
   if (upcoming) x = colEls[0].offsetLeft;
   else {
@@ -102,7 +115,9 @@ function glide(p: Phrase, t: number, upcoming: boolean): void {
       x = ca + k * (b.offsetLeft + b.clientWidth / 2 - ca);
     }
   }
-  host.scrollLeft = x - host.clientWidth * 0.35;
+  const left = Math.max(0, Math.min(host.scrollWidth - host.clientWidth, Math.round(x - host.clientWidth * 0.35)));
+  if (left !== Math.round(host.scrollLeft)) host.scrollLeft = left;
+  placedAt = Math.round(host.scrollLeft);
 }
 
 function rebuild(): void {
@@ -153,6 +168,7 @@ function renderPhrase(p: Phrase): void {
     .join("");
   host.innerHTML = `<div class="staff-col labels" aria-hidden="true">${labels}</div>${cols}`;
   colEls = Array.from(host.querySelectorAll<HTMLElement>(".staff-col[data-col]"));
+  placedAt = -1;
 }
 
 /** Update for the moment `t` in the video (called every frame). */
@@ -240,6 +256,7 @@ export function stepMode(): boolean {
 
 export function setStepMode(on: boolean): void {
   stepOn = on;
+  if (holdTimer) controls?.softHold(false);
   clearTimeout(holdTimer);
   holdTimer = undefined;
   stepAt = controls ? controls.time() - 0.01 : -1;
@@ -249,6 +266,7 @@ export function setStepMode(on: boolean): void {
 
 /** You pressed play (or pause) yourself: drop any hold in progress. */
 export function stepCancelHold(): void {
+  if (holdTimer) controls?.softHold(false);
   clearTimeout(holdTimer);
   holdTimer = undefined;
 }
@@ -270,14 +288,16 @@ export function stepTick(t: number): void {
       if (c.t > stepAt + 0.02 && (!next || c.t < next.t)) next = c;
   if (!next || t < next.t) return;
   stepAt = next.t;
-  controls.pause();
-  controls.seek(next.t);
+  const at = next.t;
+  controls.softHold(true);
   const tip = $("strip-tip");
   tip.textContent = describeColumn(next);
   tip.classList.add("step-tip");
   holdTimer = setTimeout(() => {
     holdTimer = undefined;
-    if (stepOn) controls?.play();
+    // Back to where the note starts, sound on: now you hear it.
+    controls?.seek(at);
+    controls?.softHold(false);
   }, HOLD_MS);
 }
 
@@ -410,8 +430,19 @@ export function reloadFixes(id: string): void {
 }
 
 export function initStrip(): void {
-  // Scrolling the tape yourself holds it there for a few seconds.
-  for (const ev of ["pointerdown", "wheel", "touchstart"]) $("strip-staff").addEventListener(ev, () => (handsOnUntil = Date.now() + 3000), { passive: true });
+  // Scrolling the tape yourself keeps it there (with a way back).
+  $("strip-staff").addEventListener(
+    "scroll",
+    () => {
+      const now = Math.round($("strip-staff").scrollLeft);
+      if (placedAt >= 0 && Math.abs(now - placedAt) > 3 && !handsOn) {
+        handsOn = true;
+        $("strip-follow").hidden = false;
+      }
+    },
+    { passive: true },
+  );
+  $("strip-follow").addEventListener("click", followAgain);
   $("strip-staff").addEventListener("click", (e) => {
     const btn = (e.target as HTMLElement).closest<HTMLElement>(".tnote");
     if (btn) {

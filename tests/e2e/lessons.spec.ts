@@ -299,24 +299,41 @@ test.describe("reading tab from the video", () => {
     await expect(page.locator("#lesson-step")).toHaveAttribute("aria-pressed", "true");
     await page.evaluate(() => (window as any).__yt.seekTo(3));
     await page.click("#lesson-play");
-    // It stops on the next note and says what it is…
+    // It holds on the next note (silent, nearly still, no pause — pausing
+    // brings up YouTube's buttons) and says what it is…
     await expect(page.locator("#strip-tip.step-tip")).toContainText(/string/, { timeout: 5000 });
-    await expect(page.locator("#lesson-play")).not.toHaveClass(/is-playing/);
-    const held = await page.evaluate(() => {
-      const yt = (window as any).__yt;
-      yt.log = [];
-      const set = yt.set.bind(yt);
-      yt.set = (st: number) => {
-        yt.log.push({ st, t: yt.t, at: Date.now() });
-        set(st);
-      };
-      return yt.t;
-    });
+    await expect.poll(() => page.evaluate(() => [(window as any).__yt.rate, (window as any).__yt.muted].join())).toBe("0.25,true");
+    await expect(page.locator("#lesson-play")).toHaveClass(/is-playing/);
     await shot(page, "30-note-by-note", info.project.name);
-    // …then plays on by itself after about 2 s, and stops on the next one.
-    await expect.poll(() => page.evaluate(() => (window as any).__yt.log.map((e: any) => e.st).join(",")), { timeout: 6000 }).toMatch(/^1,2/);
-    const log = await page.evaluate(() => (window as any).__yt.log);
-    expect(log[1].t).toBeGreaterThan(held);
+    // …then goes back to the note's start with sound, at your speed.
+    await expect.poll(() => page.evaluate(() => [(window as any).__yt.rate, (window as any).__yt.muted].join()), { timeout: 3500 }).toBe("1,false");
+  });
+
+  test("the tape stays where you scroll it, until Back to now", async ({ page }) => {
+    await fakeSupabase(page);
+    await fakeTabScan(page, gray, ocr);
+    await page.addInitScript(() => ((window as any).__fretlineFakeConnection = "wifi"));
+    await page.goto("/");
+    await page.click('.tab[data-view="lessons"]');
+    await page.fill("#lesson-link", "2Lq784V-KPw");
+    await page.click('#add-lesson-form button[type="submit"]');
+    await page.click("#scan-btn");
+    await expect(page.locator("#toast")).toContainText(/Read \d+ notes/, { timeout: 15_000 });
+    await page.waitForFunction(() => (window as any).__yt);
+    await page.evaluate(() => (window as any).__yt.seekTo(3));
+    await page.click("#lesson-play");
+    await page.waitForTimeout(500);
+    const max = await page.locator("#strip-staff").evaluate((el) => el.scrollWidth - el.clientWidth);
+    test.skip(max < 40, "the whole tape fits on this screen");
+    // scroll away from where the app put it
+    await page.locator("#strip-staff").evaluate((el) => (el.scrollLeft = el.scrollLeft > 20 ? 0 : el.scrollWidth));
+    await expect(page.locator("#strip-follow")).toBeVisible();
+    const left = await page.locator("#strip-staff").evaluate((el) => el.scrollLeft);
+    await page.waitForTimeout(3000);
+    expect(await page.locator("#strip-staff").evaluate((el) => el.scrollLeft)).toBe(left);
+    await page.click("#strip-follow");
+    await expect(page.locator("#strip-follow")).toBeHidden();
+    await expect.poll(() => page.locator("#strip-staff").evaluate((el) => el.scrollLeft)).not.toBe(left);
   });
 
   test("on mobile data: asks first; waiting for Wi-Fi starts it later", async ({ page }) => {

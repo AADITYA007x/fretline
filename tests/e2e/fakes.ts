@@ -195,6 +195,8 @@ export async function fakeYouTube(page: Page, opts: { blocked?: string[] } = {})
           getDuration() { return this.dur; }
           getPlayerState() { return this.state; }
           setPlaybackRate(r) { this.rate = r; }
+          mute() { this.muted = true; }
+          unMute() { this.muted = false; }
           destroy() { clearInterval(this.timer); }
         }
         window.YT = { Player };

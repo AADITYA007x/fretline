@@ -11,6 +11,8 @@ import {
   commonStaff,
   findPages,
   findStaff,
+  isScrolling,
+  playedHere,
   mergeReadings,
   staffRect,
   timeColumns,
@@ -59,7 +61,7 @@ function similar(a: Uint8Array, b: Uint8Array): boolean {
 }
 
 /** Bump when the reader gets better, so lessons read before can be read again. */
-export const SCAN_VERSION = 8;
+export const SCAN_VERSION = 9;
 
 export async function scanLesson(videoId: string, onStep: (s: Step) => void, maxHeight = 720): Promise<ScanResult> {
   if (running) throw new Error("Already reading another lesson's video.");
@@ -138,6 +140,7 @@ export async function scanLesson(videoId: string, onStep: (s: Step) => void, max
       rect,
       lines,
       pages: pages.map((p, k) => ({ start: p.start, end: p.end, same: sameAs[k], cursor: p.cursor })),
+      scrolling: isScrolling(pages),
       readings: [] as { t: number; image?: string; chars: unknown[]; notes?: ScreenNote[] }[],
       merged: [] as ScreenNote[][],
     };
@@ -154,7 +157,15 @@ export async function scanLesson(videoId: string, onStep: (s: Step) => void, max
       const found = new Map<number, ScreenNote[]>();
       for (const r of results) {
         const seen: unknown[] = [];
-        const notes = await notesFromArea({ gray: bytes(r.gray), w: r.w, h: r.h, x: r.x, y: r.y }, lines, async (lay) => {
+        const gray = bytes(r.gray);
+        // A frame that came back black (it happens near the start) is no reading.
+        let sum = 0;
+        for (let i = 0; i < gray.length; i += 7) sum += gray[i];
+        if (sum / Math.ceil(gray.length / 7) < 40) {
+          report.readings.push({ t: r.t, image: r.image?.split("/").pop(), chars: [], notes: [] });
+          continue;
+        }
+        const notes = await notesFromArea({ gray, w: r.w, h: r.h, x: r.x, y: r.y }, lines, async (lay) => {
           const { chars } = await tabScan.read({ gray: b64(lay.gray), w: lay.w, h: lay.h });
           seen.push(...chars);
           return chars;
@@ -176,12 +187,15 @@ export async function scanLesson(videoId: string, onStep: (s: Step) => void, max
     // Notes, timed by the cursor on each showing of each page.
     const notes: TabNote[] = [];
     const out: ScanPage[] = [];
+    const scrolling = isScrolling(pages);
     pages.forEach((p, k) => {
       const r = read[sameAs[k]];
       if (!r) return;
       const cols = columns(r.notes, staff.spacing * scale);
       const times = timeColumns(cols, p, rect);
+      const here = playedHere(cols, pages, k, rect, scrolling);
       cols.forEach((col, ci) => {
+        if (!here[ci]) return;
         for (const n of col) {
           notes.push({
             id: `v${Math.round(times[ci].t * 10)}-${n.string}`,
