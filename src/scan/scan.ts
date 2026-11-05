@@ -4,6 +4,7 @@
 import type { TabNote } from "../tabs/tab";
 import { tabScan, type ScanProgress } from "./native";
 import { notesFromArea } from "./glyphs";
+import type { Model } from "./digits";
 import { analyzeSound, syncNotes, type SyncReport } from "./onsets";
 import {
   bytes,
@@ -93,7 +94,7 @@ function b64(a: Uint8Array): string {
 }
 
 /** Bump when the reader gets better, so lessons read before can be read again. */
-export const SCAN_VERSION = 11;
+export const SCAN_VERSION = 12;
 
 export async function scanLesson(videoId: string, onStep: (s: Step) => void, maxHeight = 720): Promise<ScanResult> {
   if (running) throw new Error("Already reading another lesson's video.");
@@ -172,9 +173,11 @@ export async function scanLesson(videoId: string, onStep: (s: Step) => void, max
       readings: [] as { t: number; image?: string; chars: unknown[]; notes?: ScreenNote[] }[],
       merged: [] as ScreenNote[][],
     };
-    // Each page is read at three moments and the readings compared. The
+    // Our own digit reader (loaded only when reading).
+    const model = (await import("./digits-model.json")).default as unknown as Model;
+    // Each page is read at five moments and the readings compared. The
     // digits are found here and read by the phone laid out in a neat row.
-    const SPOTS = [0.3, 0.5, 0.72];
+    const SPOTS = [0.2, 0.35, 0.5, 0.65, 0.8];
     const tol = staff.spacing * scale * 0.6;
     const read: { notes: ScreenNote[]; image: string }[] = [];
     for (let i = 0; i < unique.length; i += 4) {
@@ -193,21 +196,26 @@ export async function scanLesson(videoId: string, onStep: (s: Step) => void, max
           report.readings.push({ t: r.t, image: r.image?.split("/").pop(), chars: [], notes: [] });
           continue;
         }
-        const notes = await notesFromArea({ gray, w: r.w, h: r.h, x: r.x, y: r.y }, lines, async (lay) => {
-          const { chars } = await tabScan.read({ gray: b64(lay.gray), w: lay.w, h: lay.h });
-          seen.push(...chars);
-          return chars;
-        });
+        const notes = await notesFromArea(
+          { gray, w: r.w, h: r.h, x: r.x, y: r.y },
+          lines,
+          async (lay) => {
+            const { chars } = await tabScan.read({ gray: b64(lay.gray), w: lay.w, h: lay.h });
+            seen.push(...chars);
+            return chars;
+          },
+          model,
+        );
         found.set(r.t, notes);
         report.readings.push({ t: r.t, image: r.image?.split("/").pop(), chars: seen, notes });
       }
       batch.forEach((_, k) => {
-        const mine = times.slice(k * 3, k * 3 + 3).map((t) => results.find((r) => Math.abs(r.t - t) < 0.001));
+        const mine = times.slice(k * SPOTS.length, (k + 1) * SPOTS.length).map((t) => results.find((r) => Math.abs(r.t - t) < 0.001));
         const notes = mergeReadings(
           mine.map((r) => (r ? (found.get(r.t) ?? []) : [])),
           tol,
         );
-        read.push({ notes, image: (mine[1] ?? mine.find(Boolean))?.image ?? "" });
+        read.push({ notes, image: (mine[2] ?? mine.find(Boolean))?.image ?? "" });
         report.merged.push(notes);
       });
     }
@@ -233,6 +241,7 @@ export async function scanLesson(videoId: string, onStep: (s: Step) => void, max
             chord: col.length > 1 ? 100000 + Math.round(times[ci].t * 10) : undefined,
             ...(n.tech ? { tech: n.tech } : {}),
             ...(n.strum ? { strum: n.strum } : {}),
+            ...(n.unsure ? { unsure: true } : {}),
             source: "screen",
           });
         }

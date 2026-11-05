@@ -179,7 +179,8 @@ function renderPhrase(p: Phrase): void {
               label = String(n.fret);
             }
           }
-          return `<div class="staff-cell"><button type="button" class="tnote${slide}${n.source === "you" || fixes.edits[n.id] ? " yours" : ""}" data-id="${escapeHtml(n.id)}" aria-label="String ${s}, fret ${n.fret}${n.tech ? `, ${TECH_NAME[n.tech].toLowerCase()}` : ""}">${escapeHtml(label)}${finger}</button></div>`;
+          const unsure = n.unsure && !fixes.edits[n.id] ? " unsure" : "";
+          return `<div class="staff-cell"><button type="button" class="tnote${slide}${unsure}${n.source === "you" || fixes.edits[n.id] ? " yours" : ""}" data-id="${escapeHtml(n.id)}" aria-label="String ${s}, fret ${n.fret}${n.tech ? `, ${TECH_NAME[n.tech].toLowerCase()}` : ""}${unsure ? ", not sure, tap to check" : ""}">${escapeHtml(label)}${finger}</button></div>`;
         })
         .join("");
       const pageStart = ci > 0 && pageLabel(c.t) !== pageLabel(p.columns[ci - 1].t);

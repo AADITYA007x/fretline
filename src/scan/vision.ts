@@ -360,6 +360,8 @@ export interface ScreenNote {
   x: number;
   tech?: "slide" | "hammer" | "pull" | "harmonic" | "mute";
   strum?: "up" | "down";
+  /** the readers didn't agree on it */
+  unsure?: boolean;
 }
 
 const DIGITISH: Record<string, string> = { O: "0", o: "0", D: "0", Q: "0", l: "1", I: "1", "|": "1", Z: "2", S: "5", s: "5", B: "8" };
@@ -416,7 +418,8 @@ export function charsToNotes(chars: OcrChar[], lines: number[]): ScreenNote[] {
 export function mergeReadings(readings: ScreenNote[][], tol: number): ScreenNote[] {
   const used = readings.filter((r) => r.length > 0);
   if (used.length <= 1) return used[0] ?? [];
-  const need = Math.ceil(readings.length / 2);
+  // most of the readings that saw anything (a black frame doesn't count)
+  const need = used.length >= 3 ? Math.ceil(used.length / 2) : used.length;
   const groups: { string: number; xs: number[]; frets: number[]; notes: ScreenNote[]; from: Set<number> }[] = [];
   readings.forEach((r, ri) => {
     for (const n of r) {
@@ -448,6 +451,8 @@ export function mergeReadings(readings: ScreenNote[][], tol: number): ScreenNote
     const strum = most(g.notes.map((n) => n.strum));
     if (tech) note.tech = tech;
     if (strum) note.strum = strum;
+    // unsure if the readings disagreed on the fret, or most were unsure
+    if (new Set(g.frets).size > 1 || g.notes.filter((n) => n.unsure).length * 2 > g.notes.length) note.unsure = true;
     out.push(note);
   }
   return out.sort((p, q) => p.x - q.x || p.string - q.string);

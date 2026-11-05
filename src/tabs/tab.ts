@@ -14,6 +14,8 @@ export interface TabNote {
   chord?: number;
   /** A strum arrow drawn by the chord in the video's tab (as drawn). */
   strum?: "up" | "down";
+  /** Read from the video, but the readers didn't agree: worth checking. */
+  unsure?: boolean;
   source: "speech" | "screen" | "you";
   said?: string;
 }

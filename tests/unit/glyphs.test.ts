@@ -166,3 +166,29 @@ describe("digits joined by stems and beams (Love Story's tab)", () => {
     expect(tokens.every((t) => t.marks === 1)).toBe(true);
   });
 });
+
+import { best, classify, vectorize, type Model } from "../../src/scan/digits";
+import { background } from "../../src/scan/glyphs";
+describe("our own digit reader on real lesson tab", () => {
+  const model: Model = JSON.parse(readFileSync("src/scan/digits-model.json", "utf8"));
+  const readAll = (g: Uint8Array, w: number, h: number, lines: number[]) => {
+    const sp = (lines[5] - lines[0]) / 5;
+    const bg = background(g);
+    return findTokens(g, w, h, lines).map((t) => {
+      const r = t.parts.map((p) => best(classify(model, vectorize(g, w, p, bg, sp))));
+      return { string: t.string, x: t.x0, text: r.map((q) => q.c).join(""), p: Math.min(...r.map((q) => q.p)) };
+    });
+  };
+  it("Love Story bars 9–11: every note found and read right (0s, 2s and 3s)", () => {
+    const g = new Uint8Array(gunzipSync(readFileSync("tests/fixtures/frames/love-story-bars9-11.1258x120.gray.gz")));
+    const lines = [600, 616, 630, 646, 662, 678].map((y) => y - 579);
+    const got = readAll(g, 1258, 120, lines).filter((r) => r.text !== "-" && r.p >= 0.85);
+    expect(got.map((r) => r.text).join(" ")).toBe("0 2 0 3 0 3 2 3 2 2 0 3 0 3 2 3 2 2 0 3 0 3 2 3");
+  });
+  it("Believer bar 31: the 8/5/5 and 7/5/5 chords", () => {
+    const got = readAll(pic("believer-bar31"), W, H, LINES).filter((r) => r.x > 90 && r.x < 350 && r.string <= 3);
+    const top = got.filter((r) => r.string === 1).map((r) => r.text);
+    expect(top).toEqual(["8", "8", "7", "5", "8", "8", "7", "5"]);
+    expect(got.filter((r) => r.string > 1).every((r) => r.text === "5")).toBe(true);
+  });
+});

@@ -274,28 +274,56 @@ export function syncNotes(notes: SyncNote[], pages: { start: number; end: number
   if (g.clarity < 1.5) return { ...keep, report: { ...base, offset: g.offset, capo: g.capo, clarity: g.clarity, skipped: "the sound didn't line up clearly" } };
 
   const pageOf = (t: number) => pages.findIndex((p) => t >= p.start - 0.05 && t < p.end + 0.05);
+  // A page gets its own slide only when its sound clearly says so; small
+  // differences are noise and would make the timing jump between pages.
   const pageOffsets = pages.map((_, k) => {
     const mine = cols.filter((c) => pageOf(c.t) === k && c.notes.length);
     if (mine.length < 6) return g.offset;
-    const r = alignByPitch(mine, ps, 0.4, g.offset, [g.capo]);
-    return r.clarity >= 1.15 ? r.offset : g.offset;
+    const r = alignByPitch(mine, ps, 0.3, g.offset, [g.capo]);
+    return r.clarity >= 1.3 && Math.abs(r.offset - g.offset) >= 0.08 ? r.offset : g.offset;
   });
   const shifted = cols.map((c) => {
     const k = pageOf(c.t);
     return c.t + (k >= 0 ? pageOffsets[k] : g.offset);
   });
 
-  // each column onto the pluck next to it (±80 ms), keeping their order
+  // Each column onto the pluck next to it (±80 ms) where its own notes
+  // start sounding; order kept. No such pluck: the column stays put.
   const peaks = onsetPeaks(sound.env);
+  const riseAt = (c: Column, t: number) => {
+    const pcs = [...new Set(c.notes.map((n) => pitchClass(n.string, n.fret, g.capo)))];
+    const f0 = Math.round(t * FPS);
+    let bestRise = 0;
+    for (let f = f0 - 3; f <= f0 + 3; f++) {
+      if (f < 0 || f >= ps.frames) continue;
+      let v = 0;
+      for (const pc of pcs) v += ps.rise[f * 12 + pc];
+      bestRise = Math.max(bestRise, v / Math.max(1, pcs.length));
+    }
+    return bestRise;
+  };
   const colTimes: number[] = [];
   let snapped = 0;
   let pi = 0;
   shifted.forEach((t, ci) => {
+    const c = cols[ci];
     const prev = ci ? colTimes[ci - 1] : -Infinity;
     while (pi < peaks.length && peaks[pi].t < t - 0.08) pi++;
     let best = -1;
-    for (let k = pi; k < peaks.length && peaks[k].t <= t + 0.08; k++) if (best < 0 || Math.abs(peaks[k].t - t) < Math.abs(peaks[best].t - t)) best = k;
-    if (best >= 0 && peaks[best].t > prev + 0.02) {
+    let bestScore = 0;
+    let topRise = 0;
+    for (let k = pi; k < peaks.length && peaks[k].t <= t + 0.08; k++) {
+      const rise = c.notes.length ? riseAt(c, peaks[k].t) : 1;
+      topRise = Math.max(topRise, rise);
+      // close to where it was, and its notes starting there
+      const score = rise / (1 + Math.abs(peaks[k].t - t) / 0.04);
+      if (peaks[k].t > prev + 0.02 && score > bestScore) {
+        bestScore = score;
+        best = k;
+      }
+    }
+    const ok = best >= 0 && (!c.notes.length || riseAt(c, peaks[best].t) >= topRise * 0.6);
+    if (ok) {
       colTimes.push(peaks[best].t);
       snapped++;
     } else colTimes.push(Math.max(t, prev + 0.02));

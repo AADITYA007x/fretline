@@ -269,9 +269,9 @@ test.describe("reading tab from the video", () => {
     if (a < max - 1) expect(b).toBeGreaterThan(a); // (a wide screen may already show the end)
     await shot(page, "28-screen-tab", info.project.name);
 
-    // Each page read at three moments; the details can be sent for checking.
+    // Each page read at five moments; the details can be sent for checking.
     const report = await page.evaluate(() => (window as any).__scanReport);
-    expect(report.readings.length).toBe(report.merged.length * 3);
+    expect(report.readings.length).toBe(report.merged.length * 5);
     // the sound was listened to (here it's only clicks, so the times stay)
     expect(report.sync).toBeTruthy();
     await page.click("#strip-picture");

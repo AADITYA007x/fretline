@@ -53,6 +53,7 @@ const stripControls: StripControls = {
   hold: (text, ms, resume = true) => {
     const card = $("video-hold");
     if (text !== null) {
+      holdHideAt = 0;
       player?.pause();
       $("video-hold-note").textContent = text;
       card.style.setProperty("--hold-ms", `${ms}ms`);
@@ -60,11 +61,12 @@ const stripControls: StripControls = {
       card.hidden = false;
       void card.offsetWidth; // restart the countdown bar
       card.classList.add("running");
-    } else {
-      card.hidden = true;
-      card.classList.remove("running");
-      if (resume) player?.play();
-    }
+    } else if (resume) {
+      // Keep the card up until the video is really playing again (YouTube
+      // shows its title and a spinner while it starts), then let it go.
+      player?.play();
+      holdHideAt = Date.now() + 2500;
+    } else hideHoldCard();
   },
 };
 
@@ -380,6 +382,7 @@ function tick(): void {
     $("lesson-duration").textContent = formatTime(dur);
     renderTicks();
   }
+  if (holdHideAt && Date.now() >= holdHideAt) hideHoldCard();
   renderSaying(t);
   stepTick(t);
   renderStrip(t);
@@ -406,7 +409,17 @@ function savePosition(t = player?.time() ?? 0): void {
   current = updateLesson(current.videoId, { positionSec: pos }) ?? current;
 }
 
+let holdHideAt = 0;
+
+function hideHoldCard(): void {
+  holdHideAt = 0;
+  const card = $("video-hold");
+  card.hidden = true;
+  card.classList.remove("running");
+}
+
 function onPlayerState(state: number): void {
+  if (state === STATE.PLAYING && holdHideAt) holdHideAt = Date.now() + 450;
   playing = state === STATE.PLAYING || state === STATE.BUFFERING;
   $("lesson-play").classList.toggle("is-playing", playing);
   $("lesson-play").setAttribute("aria-label", playing ? "Pause" : "Play");

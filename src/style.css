@@ -1444,6 +1444,21 @@ html.entry .app {
   border-radius: 8px;
 }
 
+/* read from the video, but the readers didn't agree: worth a look */
+.tnote.unsure {
+  outline: 1px dashed var(--off);
+  outline-offset: -1px;
+}
+
+.tnote.unsure::after {
+  content: "?";
+  position: absolute;
+  top: -6px;
+  right: -5px;
+  font-size: 10px;
+  color: var(--off);
+}
+
 /* a slide: a line coming in from the note before, rising or falling */
 .tnote.slide-up::before,
 .tnote.slide-down::before {

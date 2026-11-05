@@ -14,6 +14,10 @@ After that, the app shows a banner when a new version is out.
 
 ## What's in it
 
+**v0.6 – Our own digit reader**
+
+- v0.6.0: a small digit reader of our own (`src/scan/digits.ts`, trained by `scripts/train`: tab strips drawn in common tab fonts with stems, beams, highlights, cursors, x's and non-digit signs) reads every mark; a font matcher (this page's own sure digits) and ML Kit are second and third votes; disagreements are marked with a dashed outline and "?" in the strip. Each page read at five moments. The mark finder also cuts digits apart where they touch in a tight chord, keeps strokes that cross a line, keeps a 1 sitting on its stem, and takes light grey digits. On synthetic tab: 99% of digits read right; on real Love Story and Believer bars: every digit found and read right (tests). Sync: one steady slide for the song (a page only differs when its sound clearly says so); a note only moves onto a pluck where its own pitch starts. 1 by 1 keeps its card up until the video is really playing again.
+
 **v0.5 – In time with the sound**
 
 - v0.5.0: after reading the tab, the lesson's sound is downloaded once (small, deleted after) and each note is lined up with its pluck: one slide for the video found by matching the notes' pitches to what starts sounding (capo found too), refined page by page, then each note moved onto the pluck next to it (`src/scan/onsets.ts`; `scripts/sync-check.ts` checks a recording). 1 by 1 stops just before each note

@@ -8,6 +8,8 @@
 // with space around each, read that, and put the answers back where the
 // marks were.
 
+import { best, classify, SIZE, vectorize, type Model } from "./digits";
+
 export interface Token {
   /** Box in the area image (pixels). */
   x0: number;
@@ -18,6 +20,8 @@ export interface Token {
   string: number;
   /** Marks joined into it: 1 for "3", 2 for "12". */
   marks: number;
+  /** Each mark's box (left to right), for reading them one by one. */
+  parts: { x0: number; y0: number; x1: number; y1: number }[];
   /** From the marks around it: a slide into it, a hammer-on/pull-off arc. */
   tech?: "slide" | "hammer" | "pull";
   /** A strum arrow drawn next to its chord (as drawn: ↑ or ↓). */
@@ -32,7 +36,7 @@ export interface Layout {
   slots: { x0: number; x1: number; y0: number; y1: number; marks: number }[];
 }
 
-function background(gray: Uint8Array): number {
+export function background(gray: Uint8Array): number {
   const hist = new Uint32Array(256);
   for (const v of gray) hist[v]++;
   let seen = 0;
@@ -47,7 +51,19 @@ function background(gray: Uint8Array): number {
 /** Dark ink (digits, stems, bar lines; not the grey staff lines or a pale highlight). */
 export function inkMask(gray: Uint8Array, w: number, h: number): Uint8Array {
   const bg = background(gray);
-  const cut = Math.min(150, bg * 0.62);
+  // Between the paper and the darkest ink: light grey digits count too.
+  const hist = new Uint32Array(256);
+  for (const v of gray) hist[v]++;
+  let seen = 0;
+  let dark = 0;
+  for (let v = 0; v < 256; v++) {
+    seen += hist[v];
+    if (seen >= gray.length * 0.01) {
+      dark = v;
+      break;
+    }
+  }
+  const cut = Math.max(Math.min(150, bg * 0.62), Math.min(bg * 0.72, bg - (bg - dark) * 0.45));
   const m = new Uint8Array(w * h);
   for (let i = 0; i < m.length; i++) m[i] = gray[i] < cut ? 1 : 0;
   return m;
@@ -254,12 +270,77 @@ function isArc(m: Uint8Array, w: number, b: { x0: number; y0: number; x1: number
 }
 
 /**
+ * Digits on neighbouring strings can touch (a chord written tight), making
+ * one tall mark. Cut it between the strings, where the ink is thinnest.
+ */
+function splitStack(b: Blob, id: number, label: Int32Array, w: number, sp: number, lines: number[]): (Blob & { id: number; split?: boolean })[] {
+  const bh = b.y1 - b.y0 + 1;
+  const bw = b.x1 - b.x0 + 1;
+  if (bh < sp * 1.3 || bh > sp * 4.5 || bw > sp * 1.4) return [{ ...b, id }];
+  const cuts: number[] = [];
+  for (let i = 0; i < 5; i++) {
+    const mid = (lines[i] + lines[i + 1]) / 2;
+    if (mid <= b.y0 + sp * 0.3 || mid >= b.y1 - sp * 0.3) continue;
+    let bestY = -1;
+    let bestN = Infinity;
+    for (let y = Math.round(mid - sp * 0.3); y <= Math.round(mid + sp * 0.3); y++) {
+      let n = 0;
+      for (let x = b.x0; x <= b.x1; x++) if (label[y * w + x] === id) n++;
+      if (n < bestN) {
+        bestN = n;
+        bestY = y;
+      }
+    }
+    if (bestY > 0 && bestN <= Math.max(2, bw * 0.35)) cuts.push(bestY);
+  }
+  if (!cuts.length) return [{ ...b, id }];
+  const out: (Blob & { id: number; split: boolean })[] = [];
+  let top = b.y0;
+  for (const c of [...cuts, b.y1 + 1]) {
+    let x0 = Infinity;
+    let x1 = -1;
+    let y0 = Infinity;
+    let y1 = -1;
+    let n = 0;
+    for (let y = top; y < c; y++)
+      for (let x = b.x0; x <= b.x1; x++)
+        if (label[y * w + x] === id) {
+          n++;
+          x0 = Math.min(x0, x);
+          x1 = Math.max(x1, x);
+          y0 = Math.min(y0, y);
+          y1 = Math.max(y1, y);
+        }
+    if (n) out.push({ x0, y0, x1, y1, n, id, split: true });
+    top = c + 1;
+  }
+  return out;
+}
+
+/**
  * The ink without long straight runs: upright ones longer than a digit
  * (stems, bar lines, arrow shafts) and flat ones longer than a wide digit
  * (beams joining stems). Digits keep their shape.
  */
 function withoutLines(m: Uint8Array, w: number, h: number, sp: number): Uint8Array {
   const out = Uint8Array.from(m);
+  // Where a digit's stroke crosses the line, the ink there reaches well
+  // across the line: keep those pixels, take only the line itself.
+  const across = Math.max(5, sp * 0.35);
+  const wideAt = (x: number, y: number) => {
+    let a = x;
+    let b = x;
+    while (a > 0 && m[y * w + a - 1]) a--;
+    while (b < w - 1 && m[y * w + b + 1]) b++;
+    return b - a + 1 > across;
+  };
+  const tallAt = (x: number, y: number) => {
+    let a = y;
+    let b = y;
+    while (a > 0 && m[(a - 1) * w + x]) a--;
+    while (b < h - 1 && m[(b + 1) * w + x]) b++;
+    return b - a + 1 > across;
+  };
   const vMax = sp * 1.25;
   for (let x = 0; x < w; x++) {
     let y = 0;
@@ -270,7 +351,7 @@ function withoutLines(m: Uint8Array, w: number, h: number, sp: number): Uint8Arr
       }
       const s0 = y;
       while (y < h && m[y * w + x]) y++;
-      if (y - s0 > vMax) for (let k = s0; k < y; k++) out[k * w + x] = 0;
+      if (y - s0 > vMax) for (let k = s0; k < y; k++) if (!wideAt(x, k)) out[k * w + x] = 0;
     }
   }
   const hMax = sp * 1.6;
@@ -283,7 +364,7 @@ function withoutLines(m: Uint8Array, w: number, h: number, sp: number): Uint8Arr
       }
       const s0 = x;
       while (x < w && m[y * w + x]) x++;
-      if (x - s0 > hMax) for (let k = s0; k < x; k++) out[y * w + k] = 0;
+      if (x - s0 > hMax) for (let k = s0; k < x; k++) if (!tallAt(k, y)) out[y * w + k] = 0;
     }
   }
   return out;
@@ -328,19 +409,54 @@ export function findAll(gray: Uint8Array, w: number, h: number, lines: number[])
     return bh <= sp * 1.05 && bw <= sp * 1.6;
   };
   const sized = blobs(m2, w, h, label2)
-    .flatMap((b, k) => {
+    .flatMap((b, k) => splitStack(b, k + 1, label2, w, sp, lines))
+    .flatMap((b) => {
+      const k = b.id - 1;
       // The mark this piece came from, before lines were taken away.
       let orig = 0;
       for (let y = b.y0; y <= b.y1 && !orig; y++) for (let x = b.x0; x <= b.x1 && !orig; x++) if (label2[y * w + x] === k + 1) orig = label[y * w + x];
       const whole = orig > 0 && found[orig - 1];
-      if (whole && fits(whole)) return withoutStems(whole, orig, label, w, sp);
+      if (whole && fits(whole) && !b.split) return withoutStems(whole, orig, label, w, sp);
       const bw = b.x1 - b.x0 + 1;
       const bh = b.y1 - b.y0 + 1;
-      if (bw < sp * 0.35 || b.n / (bw * bh) > 0.55) return [];
+      if (b.n / (bw * bh) > 0.55) return [];
+      if (bw < sp * 0.35 && !b.split) return [];
       return withoutStems(b, k + 1, label2, w, sp);
     })
     .filter((b, i, all) => all.findIndex((o) => o.x0 === b.x0 && o.y0 === b.y0 && o.x1 === b.x1 && o.y1 === b.y1) === i)
     .map((b) => ({ ...b, bw: b.x1 - b.x0 + 1, bh: b.y1 - b.y0 + 1 }));
+  // A narrow digit (a 1, sometimes a 7 or 4) on top of its stem is one long
+  // upright line: taking lines away erases it. Its top sits about half a
+  // digit above a string (a bare stem starts below one, a bar line at the
+  // top string), so keep a digit's height from there.
+  for (const b of found) {
+    const bw = b.x1 - b.x0 + 1;
+    const bh = b.y1 - b.y0 + 1;
+    if (bh <= sp * 1.25 || bw > sp * 0.6) continue;
+    const line = lines.findIndex((ly) => ly - b.y0 >= sp * 0.2 && ly - b.y0 <= sp * 0.55);
+    if (line < 0 || (line === 0 && b.y1 >= lines[5] - sp * 0.2)) continue;
+    const y1 = Math.min(b.y1, Math.round(lines[line] + (lines[line] - b.y0)));
+    if (sized.some((o) => o.x0 <= b.x1 && o.x1 >= b.x0 && o.y0 <= y1 && o.y1 >= b.y0)) continue;
+    // a stem hanging from a digit just above it is only a stem
+    if (sized.some((o) => o.x0 <= b.x1 + 2 && o.x1 >= b.x0 - 2 && o.y1 <= b.y0 + 1 && b.y0 - o.y1 <= sp * 0.4)) continue;
+    // and a digit has some shape at its top (a 1's flag, a 7's bar): a
+    // plain stem is the same width all the way down
+    const rowW = (y: number) => {
+      let a = -1;
+      let z = -1;
+      for (let x = b.x0; x <= b.x1; x++)
+        if (m[y * w + x]) {
+          if (a < 0) a = x;
+          z = x;
+        }
+      return a < 0 ? 0 : z - a + 1;
+    };
+    const stemW = rowW(Math.min(h - 1, y1 + Math.round(sp * 0.4)));
+    let topW = 0;
+    for (let y = b.y0; y < b.y0 + (y1 - b.y0) * 0.5; y++) topW = Math.max(topW, rowW(y));
+    if (topW < stemW + 2) continue;
+    sized.push({ x0: b.x0, x1: b.x1, y0: b.y0, y1, n: 0, bw, bh: y1 - b.y0 + 1 });
+  }
   const digitSized = sized.filter((b) => b.bh >= sp * 0.45 && b.bh <= sp * 1.05 && b.bw <= sp * 0.95 && b.bw >= 1);
   // Slide marks can be shorter than a digit.
   const slides = sized
@@ -361,13 +477,18 @@ export function findAll(gray: Uint8Array, w: number, h: number, lines: number[])
       last.y0 = Math.min(last.y0, b.y0);
       last.y1 = Math.max(last.y1, b.y1);
       last.marks++;
+      last.parts.push({ x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1 });
       continue;
     }
-    tokens.push({ x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1, string: b.string, marks: 1 });
+    tokens.push({ x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1, string: b.string, marks: 1, parts: [{ x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1 }] });
   }
   // Two pieces close enough to be one digit (a thin "0" broken in two):
   // one digit, not a two-digit fret.
-  for (const t of tokens) if (t.marks === 2 && t.x1 - t.x0 + 1 <= sp * 0.8) t.marks = 1;
+  for (const t of tokens)
+    if (t.marks === 2 && t.x1 - t.x0 + 1 <= sp * 0.8) {
+      t.marks = 1;
+      t.parts = [{ x0: t.x0, y0: t.y0, x1: t.x1, y1: t.y1 }];
+    }
   tokens.sort((a, b) => a.x0 - b.x0 || a.string - b.string);
 
   // A slide mark between two frets on a string: the second is slid into.
@@ -519,27 +640,118 @@ export interface AreaNote {
   x: number;
   tech?: "slide" | "hammer" | "pull" | "harmonic" | "mute";
   strum?: "up" | "down";
+  /** The readers didn't agree: worth a look. */
+  unsure?: boolean;
+}
+
+/** What our own reader made of a token: its text and how sure (the least sure mark). */
+interface OwnRead {
+  text: string;
+  p: number;
+  /** a font-matcher's opinion, when it had one */
+  match?: string;
+}
+
+/**
+ * Our digit reader on every mark, then a second opinion from this page's
+ * own font: the marks it was very sure of show what each digit looks like
+ * here, and every unsure mark is compared with those.
+ */
+function readOurselves(area: Area, tokens: Token[], sp: number, model: Model): (OwnRead | null)[] {
+  const bg = background(area.gray);
+  const marks = tokens.map((t) =>
+    t.parts.map((p) => {
+      const v = vectorize(area.gray, area.w, p, bg, sp);
+      return { v, ...best(classify(model, v)) };
+    }),
+  );
+  // this page's digits, from the sure reads
+  const sums = new Map<string, { v: Float32Array; n: number }>();
+  for (const ms of marks)
+    for (const m of ms) {
+      if (m.p < 0.97 || m.c === "-") continue;
+      const s = sums.get(m.c) ?? { v: new Float32Array(SIZE * SIZE), n: 0 };
+      for (let i = 0; i < SIZE * SIZE; i++) s.v[i] += m.v[i];
+      s.n++;
+      sums.set(m.c, s);
+    }
+  const looks = [...sums].filter(([, s]) => s.n >= 2);
+  const cos = (a: Float32Array, b: Float32Array) => {
+    let ab = 0;
+    let aa = 0;
+    let bb = 0;
+    for (let i = 0; i < SIZE * SIZE; i++) {
+      ab += a[i] * b[i];
+      aa += a[i] * a[i];
+      bb += b[i] * b[i];
+    }
+    return ab / Math.sqrt(aa * bb || 1);
+  };
+  return marks.map((ms) => {
+    const digits = ms.filter((m) => m.c !== "-");
+    if (!digits.length) return { text: "-", p: Math.min(...ms.map((m) => m.p)) };
+    const text = digits.map((m) => m.c).join("");
+    const p = Math.min(...digits.map((m) => m.p));
+    if (p >= 0.97 || !looks.length) return { text, p };
+    const match = digits
+      .map((m) => {
+        const ranked = looks.map(([c, s]) => ({ c, sim: cos(m.v, s.v) })).sort((a, b) => b.sim - a.sim);
+        const top = ranked[0];
+        const second = ranked[1]?.sim ?? 0;
+        return top.sim > 0.9 && top.sim - second > 0.03 ? top.c : "";
+      })
+      .join("");
+    return { text, p, match: match.length === digits.length ? match : undefined };
+  });
+}
+
+/**
+ * One answer from up to three readers: ours, the page's font, ML Kit. Ours
+ * when it's sure; otherwise whichever two agree; otherwise ours, marked
+ * unsure. Null: not a note (or nothing readable).
+ */
+function decide(ours: OwnRead | null, mk: ReadToken | null): { fret: number; mute?: boolean; unsure?: boolean } | null {
+  const fromText = (t: string) => (t === "x" ? { fret: 0, mute: true } : /^\d+$/.test(t) && Number(t) <= 24 ? { fret: Number(t) } : null);
+  const mkText = mk ? (mk.mute ? "x" : String(mk.fret)) : null;
+  if (!ours) return mk;
+  if (ours.text === "-") {
+    // not a digit, unless ML Kit and the page's font both say it is one
+    return ours.p < 0.8 && mkText && ours.match === mkText ? { ...fromText(mkText)!, unsure: true } : null;
+  }
+  if (ours.p >= 0.85) return fromText(ours.text);
+  const votes = [ours.text, ours.match, mkText].filter((v): v is string => !!v);
+  for (const v of votes) if (votes.filter((o) => o === v).length >= 2) return fromText(v);
+  const f = fromText(ours.text) ?? (mkText ? fromText(mkText) : null);
+  return f ? { ...f, unsure: true } : null;
 }
 
 /**
  * All of it together: the notes in one tab area. `read` reads a layout
- * picture (ML Kit on the phone).
+ * picture (ML Kit on the phone); `model` is our own digit reader.
  */
-export async function notesFromArea(area: Area, lines: number[], read: (l: Layout) => Promise<ReadChar[]>): Promise<AreaNote[]> {
+export async function notesFromArea(
+  area: Area,
+  lines: number[],
+  read: (l: Layout) => Promise<ReadChar[]>,
+  model?: Model,
+): Promise<AreaNote[]> {
   const local = lines.map((y) => y - area.y);
+  const sp = (local[5] - local[0]) / 5;
   const { tokens } = findAll(area.gray, area.w, area.h, local);
   if (!tokens.length) return [];
   const lay = layOut(area.gray, area.w, area.h, tokens, local);
   const got = readTokens(lay, await read(lay));
+  const ours = model ? readOurselves(area, tokens, sp, model) : tokens.map(() => null);
   const out: AreaNote[] = [];
   tokens.forEach((t, i) => {
-    const r = got[i];
-    if (!r) return;
-    const n: AreaNote = { string: t.string, fret: r.fret, x: area.x + (t.x0 + t.x1) / 2 };
-    if (r.mute) n.tech = "mute";
-    else if (r.harmonic) n.tech = "harmonic";
+    const v = decide(ours[i], got[i]);
+    if (!v) return;
+    const n: AreaNote = { string: t.string, fret: v.fret, x: area.x + (t.x0 + t.x1) / 2 };
+    if (v.mute) n.tech = "mute";
+    else if (got[i]?.harmonic) n.tech = "harmonic";
     else if (t.tech) n.tech = t.tech;
     if (t.strum) n.strum = t.strum;
+    if (v.unsure) n.unsure = true;
     out.push(n);
   });
   // An arc: hammer-on if it goes up the neck, pull-off if down.
