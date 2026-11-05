@@ -209,6 +209,36 @@ export function alignByPitch(cols: Column[], ps: PitchStarts, range = 3, around 
   return best;
 }
 
+/**
+ * Each page with enough notes finds its own slide and capo; when most of
+ * the clear ones agree (same capo, slides within 0.1 s), that's the answer.
+ */
+export function voteByPages(
+  cols: Column[],
+  pages: { start: number; end: number }[],
+  pageOf: (t: number) => number,
+  ps: PitchStarts,
+): { offset: number; capo: number; clarity: number } | null {
+  const votes: { offset: number; capo: number; clarity: number }[] = [];
+  pages.forEach((_, k) => {
+    const mine = cols.filter((c) => pageOf(c.t) === k && c.notes.length);
+    if (mine.length < 8) return;
+    const r = alignByPitch(mine, ps, 2, 0);
+    if (r.clarity >= 1.4) votes.push(r);
+  });
+  if (votes.length < 3) return null;
+  let best: { offset: number; capo: number; clarity: number; n: number } | null = null;
+  for (const v of votes) {
+    const agree = votes.filter((o) => o.capo === v.capo && Math.abs(o.offset - v.offset) <= 0.1);
+    if (!best || agree.length > best.n) {
+      const offs = agree.map((o) => o.offset).sort((a, b) => a - b);
+      best = { offset: offs[offs.length >> 1], capo: v.capo, clarity: Math.max(...agree.map((o) => o.clarity)), n: agree.length };
+    }
+  }
+  if (!best || best.n < Math.max(3, votes.length * 0.4)) return null;
+  return { offset: best.offset, capo: best.capo, clarity: best.clarity };
+}
+
 // --- All together -------------------------------------------------------------------------
 
 export interface SyncNote {
@@ -270,10 +300,16 @@ export function syncNotes(notes: SyncNote[], pages: { start: number; end: number
   if (cols.filter((c) => c.notes.length).length < 8) return { ...keep, report: { ...base, skipped: "too few notes" } };
 
   const ps = sound.starts;
-  const g = alignByPitch(cols, ps, 3, 0);
-  if (g.clarity < 1.5) return { ...keep, report: { ...base, offset: g.offset, capo: g.capo, clarity: g.clarity, skipped: "the sound didn't line up clearly" } };
-
   const pageOf = (t: number) => pages.findIndex((p) => t >= p.start - 0.05 && t < p.end + 0.05);
+  let g = alignByPitch(cols, ps, 3, 0);
+  if (g.clarity < 1.5) {
+    // Not clear for the song as a whole (a few misread pages, lots of
+    // muted hits): let the pages vote, each on its own.
+    const v = voteByPages(cols, pages, pageOf, ps);
+    if (!v) return { ...keep, report: { ...base, offset: g.offset, capo: g.capo, clarity: g.clarity, skipped: "the sound didn't line up clearly" } };
+    g = v;
+  }
+
   // A page gets its own slide only when its sound clearly says so; small
   // differences are noise and would make the timing jump between pages.
   const pageOffsets = pages.map((_, k) => {

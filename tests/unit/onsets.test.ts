@@ -68,3 +68,16 @@ describe("lining the tab up with the sound", () => {
     expect(r.times).toEqual(notes.map((n) => n.t));
   });
 });
+
+import { voteByPages } from "../../src/scan/onsets";
+describe("when the whole song doesn't line up clearly", () => {
+  it("the pages vote: Love Story's pages agree on the same slide", () => {
+    const starts = [...new Set(cols.map((c) => c.page))].sort((a, b) => a - b);
+    const pages = starts.map((s, i) => ({ start: s, end: starts[i + 1] ?? 1e9 }));
+    const pageOf = (t: number) => pages.findIndex((p) => t >= p.start - 0.05 && t < p.end + 0.05);
+    const v = voteByPages(cols, pages, pageOf, sound.starts);
+    expect(v).not.toBeNull();
+    expect(v!.capo).toBe(0);
+    expect(Math.abs(v!.offset - -0.2)).toBeLessThan(0.11);
+  });
+});
