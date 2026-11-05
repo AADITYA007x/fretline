@@ -1400,10 +1400,10 @@ html.entry .app {
 /* a strum arrow from the video's tab, drawn by its chord */
 .staff-col .strum {
   position: absolute;
-  left: 1px;
+  left: -4px;
   top: 50%;
   transform: translateY(-50%);
-  font-size: 13px;
+  font: 700 24px/1 var(--ui);
   color: var(--accent);
   pointer-events: none;
 }

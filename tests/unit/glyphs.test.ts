@@ -142,3 +142,27 @@ describe("the symbols around the digits", () => {
     expect(notes.filter((n) => n.tech === "pull").length).toBe(3);
   });
 });
+
+describe("digits joined by stems and beams (Love Story's tab)", () => {
+  it("two 0s whose stems meet in a beam are both found", () => {
+    const w = 160;
+    const h = 170;
+    const g = new Uint8Array(w * h).fill(250);
+    const lines = [20, 40, 60, 80, 100, 120];
+    for (const y of lines) for (let x = 0; x < w; x++) g[y * w + x] = 190;
+    const zero = (cx: number, cy: number) => {
+      for (let y = cy - 8; y <= cy + 8; y++)
+        for (let x = cx - 6; x <= cx + 6; x++) {
+          const r = ((x - cx) / 6) ** 2 + ((y - cy) / 8) ** 2;
+          if (r <= 1 && r >= 0.45) g[y * w + x] = 20;
+        }
+      for (let y = cy + 8; y <= 150; y++) g[y * w + cx] = g[y * w + cx + 1] = 20; // stem down
+    };
+    zero(40, 20); // high e
+    zero(100, 80); // D
+    for (let y = 148; y <= 151; y++) for (let x = 40; x <= 101; x++) g[y * w + x] = 20; // beam
+    const tokens = findTokens(g, w, h, lines);
+    expect(tokens.map((t) => t.string)).toEqual([1, 4]);
+    expect(tokens.every((t) => t.marks === 1)).toBe(true);
+  });
+});

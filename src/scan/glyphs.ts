@@ -253,6 +253,42 @@ function isArc(m: Uint8Array, w: number, b: { x0: number; y0: number; x1: number
   return Math.abs(ends - mid) >= Math.max(1.5, b.bh * 0.4);
 }
 
+/**
+ * The ink without long straight runs: upright ones longer than a digit
+ * (stems, bar lines, arrow shafts) and flat ones longer than a wide digit
+ * (beams joining stems). Digits keep their shape.
+ */
+function withoutLines(m: Uint8Array, w: number, h: number, sp: number): Uint8Array {
+  const out = Uint8Array.from(m);
+  const vMax = sp * 1.25;
+  for (let x = 0; x < w; x++) {
+    let y = 0;
+    while (y < h) {
+      if (!m[y * w + x]) {
+        y++;
+        continue;
+      }
+      const s0 = y;
+      while (y < h && m[y * w + x]) y++;
+      if (y - s0 > vMax) for (let k = s0; k < y; k++) out[k * w + x] = 0;
+    }
+  }
+  const hMax = sp * 1.6;
+  for (let y = 0; y < h; y++) {
+    let x = 0;
+    while (x < w) {
+      if (!m[y * w + x]) {
+        x++;
+        continue;
+      }
+      const s0 = x;
+      while (x < w && m[y * w + x]) x++;
+      if (x - s0 > hMax) for (let k = s0; k < x; k++) out[y * w + k] = 0;
+    }
+  }
+  return out;
+}
+
 export interface Found {
   tokens: Token[];
   slides: { x0: number; x1: number; string: number }[];
@@ -276,10 +312,35 @@ export function findAll(gray: Uint8Array, w: number, h: number, lines: number[])
     const dir = arrowOf(b, k + 1, label, w, sp);
     if (dir) arrows.push({ x: (b.x0 + b.x1) / 2, dir });
   });
-  const sized = found
-    .flatMap((b, k) => withoutStems(b, k + 1, label, w, sp))
+  const arcs = found
+    .map((b) => ({ ...b, bw: b.x1 - b.x0 + 1, bh: b.y1 - b.y0 + 1 }))
+    .filter((b) => isArc(m, w, b, sp))
+    .map((b) => ({ x0: b.x0, x1: b.x1, y1: b.y1 }));
+  // Digits: first take away stems, beams and bar lines (long straight
+  // runs), which can join digits to each other into one big mark.
+  // Only big marks are split this way; a piece of one must look like a
+  // digit (not a sliver of a wavy line or a solid arrow head).
+  const m2 = withoutLines(m, w, h, sp);
+  const label2 = new Int32Array(w * h);
+  const fits = (b: Blob) => {
+    const bw = b.x1 - b.x0 + 1;
+    const bh = b.y1 - b.y0 + 1;
+    return bh <= sp * 1.05 && bw <= sp * 1.6;
+  };
+  const sized = blobs(m2, w, h, label2)
+    .flatMap((b, k) => {
+      // The mark this piece came from, before lines were taken away.
+      let orig = 0;
+      for (let y = b.y0; y <= b.y1 && !orig; y++) for (let x = b.x0; x <= b.x1 && !orig; x++) if (label2[y * w + x] === k + 1) orig = label[y * w + x];
+      const whole = orig > 0 && found[orig - 1];
+      if (whole && fits(whole)) return withoutStems(whole, orig, label, w, sp);
+      const bw = b.x1 - b.x0 + 1;
+      const bh = b.y1 - b.y0 + 1;
+      if (bw < sp * 0.35 || b.n / (bw * bh) > 0.55) return [];
+      return withoutStems(b, k + 1, label2, w, sp);
+    })
+    .filter((b, i, all) => all.findIndex((o) => o.x0 === b.x0 && o.y0 === b.y0 && o.x1 === b.x1 && o.y1 === b.y1) === i)
     .map((b) => ({ ...b, bw: b.x1 - b.x0 + 1, bh: b.y1 - b.y0 + 1 }));
-  const arcs = sized.filter((b) => isArc(m, w, b, sp)).map((b) => ({ x0: b.x0, x1: b.x1, y1: b.y1 }));
   const digitSized = sized.filter((b) => b.bh >= sp * 0.45 && b.bh <= sp * 1.05 && b.bw <= sp * 0.95 && b.bw >= 1);
   // Slide marks can be shorter than a digit.
   const slides = sized
@@ -304,6 +365,9 @@ export function findAll(gray: Uint8Array, w: number, h: number, lines: number[])
     }
     tokens.push({ x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1, string: b.string, marks: 1 });
   }
+  // Two pieces close enough to be one digit (a thin "0" broken in two):
+  // one digit, not a two-digit fret.
+  for (const t of tokens) if (t.marks === 2 && t.x1 - t.x0 + 1 <= sp * 0.8) t.marks = 1;
   tokens.sort((a, b) => a.x0 - b.x0 || a.string - b.string);
 
   // A slide mark between two frets on a string: the second is slid into.
@@ -354,6 +418,18 @@ export function layOut(gray: Uint8Array, w: number, h: number, tokens: Token[], 
   const H = Math.max(rowH + gap, rows.length * rowH + gap);
   const out = new Uint8Array(W * H).fill(255);
   const mask = inkMask(gray, w, h);
+  // Soft edges of strokes (thin, light digits) are kept too, but only
+  // right next to dark ink, so staff lines and highlights stay out.
+  const soft = background(gray) - 25;
+  const nearInk = (x: number, y: number) => {
+    for (let dy = -1; dy <= 1; dy++)
+      for (let dx = -1; dx <= 1; dx++) {
+        const xx = x + dx;
+        const yy = y + dy;
+        if (xx >= 0 && yy >= 0 && xx < w && yy < h && mask[yy * w + xx]) return true;
+      }
+    return false;
+  };
   const slots: Layout["slots"] = [];
   rows.forEach((row, ri) => {
     let x = gap;
@@ -366,7 +442,8 @@ export function layOut(gray: Uint8Array, w: number, h: number, tokens: Token[], 
         for (let xx = 0; xx < tw * scale; xx++) {
           const sx = t.x0 + Math.floor(xx / scale);
           const sy = t.y0 + Math.floor(yy / scale);
-          if (mask[sy * w + sx]) out[(oy + yy) * W + x + xx] = 0;
+          if (mask[sy * w + sx]) out[(oy + yy) * W + x + xx] = Math.min(gray[sy * w + sx], 60);
+          else if (gray[sy * w + sx] < soft && nearInk(sx, sy)) out[(oy + yy) * W + x + xx] = gray[sy * w + sx];
         }
       slots.push({ x0: x, x1: x + tw * scale, y0: top, y1: top + cellH, marks: t.marks });
       x += tw * scale + gap;
