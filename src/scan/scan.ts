@@ -6,7 +6,6 @@ import { tabScan, type ScanProgress } from "./native";
 import { notesFromArea } from "./glyphs";
 import {
   bytes,
-  changedCells,
   columns,
   commonStaff,
   findPages,
@@ -55,13 +54,8 @@ function b64(a: Uint8Array): string {
   return btoa(s);
 }
 
-/** Pages with the same picture are read once. */
-function similar(a: Uint8Array, b: Uint8Array): boolean {
-  return changedCells(a, b) < 3;
-}
-
 /** Bump when the reader gets better, so lessons read before can be read again. */
-export const SCAN_VERSION = 9;
+export const SCAN_VERSION = 10;
 
 export async function scanLesson(videoId: string, onStep: (s: Step) => void, maxHeight = 720): Promise<ScanResult> {
   if (running) throw new Error("Already reading another lesson's video.");
@@ -125,14 +119,10 @@ export async function scanLesson(videoId: string, onStep: (s: Step) => void, max
     const pages = findPages(frames);
     if (!pages.length) return { notes: [], pages: [], none: "The tab area never stayed still long enough to read." };
 
-    // Read each different page once.
-    const unique: Page[] = [];
-    const sameAs = pages.map((p) => {
-      const i = unique.findIndex((u) => similar(u.thumb, p.thumb));
-      if (i >= 0) return i;
-      unique.push(p);
-      return unique.length - 1;
-    });
+    // Every page is read (pages that look alike in the small thumbnail can
+    // still differ in a digit: a 0 where the other has a 2).
+    const unique: Page[] = pages;
+    const sameAs = pages.map((_, k) => k);
     // What the reader saw, kept for checking (Send reading details).
     const report = {
       version: SCAN_VERSION,

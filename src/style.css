@@ -1144,6 +1144,53 @@ html.entry .app {
   margin-top: 8px;
 }
 
+/* 1 by 1: while it waits on a note, the video is paused under this card
+   (pausing brings up YouTube's own buttons; this keeps them out of sight) */
+.video-hold {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-content: center;
+  gap: 6px;
+  padding: 16px;
+  text-align: center;
+  background: rgba(20, 14, 12, 0.86);
+}
+
+.hold-label {
+  margin: 0;
+  font-size: 13px;
+  color: var(--bone-dim);
+}
+
+.hold-note {
+  margin: 0;
+  font: 700 clamp(20px, 6vw, 34px) / 1.2 var(--display);
+  color: var(--accent-bright);
+}
+
+.hold-bar {
+  justify-self: center;
+  width: min(220px, 60vw);
+  height: 4px;
+  border-radius: 2px;
+  background: var(--bone-faint);
+  overflow: hidden;
+}
+
+.hold-bar i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+}
+
+.video-hold.running .hold-bar i {
+  width: 100%;
+  transition: width var(--hold-ms, 2000ms) linear;
+}
+
 /* His words as he says them: the line, with the words said so far lit. */
 .saying {
   min-height: 74px;
@@ -1395,6 +1442,29 @@ html.entry .app {
   min-width: 34px;
   padding: 0 2px;
   border-radius: 8px;
+}
+
+/* a slide: a line coming in from the note before, rising or falling */
+.tnote.slide-up::before,
+.tnote.slide-down::before {
+  content: "";
+  position: absolute;
+  right: 100%;
+  top: 50%;
+  width: 22px;
+  height: 2px;
+  margin-right: 1px;
+  background: var(--accent);
+  transform-origin: right center;
+  pointer-events: none;
+}
+
+.tnote.slide-up::before {
+  transform: rotate(-24deg);
+}
+
+.tnote.slide-down::before {
+  transform: rotate(24deg);
 }
 
 /* a strum arrow from the video's tab, drawn by its chord */

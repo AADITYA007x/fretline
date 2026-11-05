@@ -30,10 +30,10 @@ export interface StripControls {
   /** The caption line he was saying at a moment (the tip under the tab). */
   saidAt(sec: number): string;
   /**
-   * Hold the picture without pausing (pausing brings up YouTube's own
-   * buttons and title over the video): silent and as slow as it goes.
+   * 1 by 1: pause on a note with a card over the video saying what it is
+   * (`text`), or take the card away (null) and carry on playing (`resume`).
    */
-  softHold(on: boolean): void;
+  hold(text: string | null, ms: number, resume?: boolean): void;
 }
 
 const FINGER_MARK: Record<Finger, string> = { thumb: "T", index: "i", middle: "m", ring: "r", pinky: "p" };
@@ -147,6 +147,15 @@ export function clearTab(): void {
   $("strip-staff").innerHTML = "";
 }
 
+/** The last note on string s before column ci of the phrase. */
+function prevOnString(p: Phrase, ci: number, s: number): TabNote | undefined {
+  for (let i = ci - 1; i >= 0; i--) {
+    const n = p.columns[i].notes.find((x) => x.string === s);
+    if (n) return n;
+  }
+  return undefined;
+}
+
 function renderPhrase(p: Phrase): void {
   const host = $("strip-staff");
   const labels = [1, 2, 3, 4, 5, 6].map((s) => `<div class="staff-cell">${STRING_NAMES[s]}</div>`).join("");
@@ -157,7 +166,18 @@ function renderPhrase(p: Phrase): void {
           const n = c.notes.find((x) => x.string === s);
           if (!n) return `<div class="staff-cell"></div>`;
           const finger = n.finger ? `<sup>${FINGER_MARK[n.finger]}</sup>` : "";
-          return `<div class="staff-cell"><button type="button" class="tnote${n.source === "you" || fixes.edits[n.id] ? " yours" : ""}" data-id="${escapeHtml(n.id)}" aria-label="String ${s}, fret ${n.fret}">${escapeHtml(fretLabel(n))}${finger}</button></div>`;
+          // A slide is drawn as a line from the note before it on the same
+          // string, going up or down like the frets do.
+          let slide = "";
+          let label = fretLabel(n);
+          if (n.tech === "slide") {
+            const before = prevOnString(p, ci, s);
+            if (before) {
+              slide = before.fret <= n.fret ? " slide-up" : " slide-down";
+              label = String(n.fret);
+            }
+          }
+          return `<div class="staff-cell"><button type="button" class="tnote${slide}${n.source === "you" || fixes.edits[n.id] ? " yours" : ""}" data-id="${escapeHtml(n.id)}" aria-label="String ${s}, fret ${n.fret}${n.tech ? `, ${TECH_NAME[n.tech].toLowerCase()}` : ""}">${escapeHtml(label)}${finger}</button></div>`;
         })
         .join("");
       const pageStart = ci > 0 && pageLabel(c.t) !== pageLabel(p.columns[ci - 1].t);
@@ -256,7 +276,7 @@ export function stepMode(): boolean {
 
 export function setStepMode(on: boolean): void {
   stepOn = on;
-  if (holdTimer) controls?.softHold(false);
+  if (holdTimer) controls?.hold(null, 0, false);
   clearTimeout(holdTimer);
   holdTimer = undefined;
   stepAt = controls ? controls.time() - 0.01 : -1;
@@ -266,7 +286,7 @@ export function setStepMode(on: boolean): void {
 
 /** You pressed play (or pause) yourself: drop any hold in progress. */
 export function stepCancelHold(): void {
-  if (holdTimer) controls?.softHold(false);
+  if (holdTimer) controls?.hold(null, 0);
   clearTimeout(holdTimer);
   holdTimer = undefined;
 }
@@ -288,16 +308,15 @@ export function stepTick(t: number): void {
       if (c.t > stepAt + 0.02 && (!next || c.t < next.t)) next = c;
   if (!next || t < next.t) return;
   stepAt = next.t;
-  const at = next.t;
-  controls.softHold(true);
+  const text = describeColumn(next);
+  controls.hold(text, HOLD_MS);
   const tip = $("strip-tip");
-  tip.textContent = describeColumn(next);
+  tip.textContent = text;
   tip.classList.add("step-tip");
   holdTimer = setTimeout(() => {
     holdTimer = undefined;
-    // Back to where the note starts, sound on: now you hear it.
-    controls?.seek(at);
-    controls?.softHold(false);
+    // Now play it (up to the next note).
+    controls?.hold(null, 0);
   }, HOLD_MS);
 }
 

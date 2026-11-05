@@ -49,9 +49,21 @@ const stripControls: StripControls = {
     const i = lineAt(lines, sec);
     return i >= 0 ? lines[i].text : "";
   },
-  softHold: (on) => {
-    player?.setRate(on ? 0.25 : speed);
-    player?.setMuted(on);
+  hold: (text, ms, resume = true) => {
+    const card = $("video-hold");
+    if (text !== null) {
+      player?.pause();
+      $("video-hold-note").textContent = text;
+      card.style.setProperty("--hold-ms", `${ms}ms`);
+      card.classList.remove("running");
+      card.hidden = false;
+      void card.offsetWidth; // restart the countdown bar
+      card.classList.add("running");
+    } else {
+      card.hidden = true;
+      card.classList.remove("running");
+      if (resume) player?.play();
+    }
   },
 };
 
@@ -458,6 +470,7 @@ function closeLesson(fromCode = true): void {
   lines = [];
   clearTab();
   setStepMode(false);
+  $("video-hold").hidden = true;
   $("lesson-step").setAttribute("aria-pressed", "false");
   setScreen(false);
   if (fromCode) removeStep("lesson");

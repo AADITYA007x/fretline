@@ -162,7 +162,8 @@ test.describe("tab strip", () => {
     await page.evaluate(() => (window as any).__yt.seekTo(9.6));
     await expect(page.locator(".staff-col.now .tnote")).toHaveText("h4");
     await page.evaluate(() => (window as any).__yt.seekTo(13.6));
-    await expect(page.locator(".staff-col.now .tnote")).toHaveText("/7");
+    // a slide: drawn as a line up from the note before, the fret plain
+    await expect(page.locator(".staff-col.now .tnote.slide-up")).toHaveText("7");
     await shot(page, "26-tab-strip", info.project.name);
 
     // Fix the slide: it's really the 8th fret on the 2nd string.
@@ -299,14 +300,39 @@ test.describe("reading tab from the video", () => {
     await expect(page.locator("#lesson-step")).toHaveAttribute("aria-pressed", "true");
     await page.evaluate(() => (window as any).__yt.seekTo(3));
     await page.click("#lesson-play");
-    // It holds on the next note (silent, nearly still, no pause — pausing
-    // brings up YouTube's buttons) and says what it is…
-    await expect(page.locator("#strip-tip.step-tip")).toContainText(/string/, { timeout: 5000 });
-    await expect.poll(() => page.evaluate(() => [(window as any).__yt.rate, (window as any).__yt.muted].join())).toBe("0.25,true");
-    await expect(page.locator("#lesson-play")).toHaveClass(/is-playing/);
+    // It pauses on the next note with a card over the video saying what it
+    // is (YouTube's own pause buttons stay hidden under it)…
+    await expect(page.locator("#video-hold")).toBeVisible({ timeout: 5000 });
+    await expect(page.locator("#video-hold-note")).toContainText(/string/);
+    await expect(page.locator("#lesson-play")).not.toHaveClass(/is-playing/);
+    const held = await page.evaluate(() => (window as any).__yt.t);
     await shot(page, "30-note-by-note", info.project.name);
-    // …then goes back to the note's start with sound, at your speed.
-    await expect.poll(() => page.evaluate(() => [(window as any).__yt.rate, (window as any).__yt.muted].join()), { timeout: 3500 }).toBe("1,false");
+    // …then it plays on from there (no jump back) to the next note.
+    await expect.poll(() => page.evaluate(() => (window as any).__yt.t), { timeout: 4000 }).toBeGreaterThan(held);
+  });
+
+  test("a slide is drawn as a line from the note before (3 → 5 rises)", async ({ page }, info) => {
+    await fakeSupabase(page);
+    await page.addInitScript(() => {
+      const n = (t: number, string: number, fret: number, tech?: string) => ({ id: `v${t * 10}-${string}`, t, string, fret, source: "screen", ...(tech ? { tech } : {}) });
+      const screen = {
+        at: 1,
+        v: 99,
+        notes: [n(2, 2, 3), n(2.5, 2, 5, "slide"), n(3, 3, 2), n(3.5, 2, 3), n(4, 2, 1, "slide"), n(4.5, 6, 0, "mute")],
+        pages: [{ start: 1.5, end: 6, notes: 6 }],
+      };
+      localStorage.setItem("fretline:fixes:2Lq784V-KPw", JSON.stringify({ edits: {}, added: [], updatedAt: 1, screen }));
+    });
+    await page.goto("/");
+    await page.click('.tab[data-view="lessons"]');
+    await page.fill("#lesson-link", "2Lq784V-KPw");
+    await page.click('#add-lesson-form button[type="submit"]');
+    await page.waitForFunction(() => (window as any).__yt);
+    await page.evaluate(() => (window as any).__yt.seekTo(2.6));
+    await expect(page.locator(".tnote.slide-up")).toHaveText("5");
+    await expect(page.locator(".tnote.slide-down")).toHaveText("1");
+    await expect(page.locator(".tnote", { hasText: "x" })).toHaveCount(1);
+    await shot(page, "31-slides", info.project.name);
   });
 
   test("the tape stays where you scroll it, until Back to now", async ({ page }) => {

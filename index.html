@@ -80,7 +80,14 @@
               <div id="lesson-uploader" class="lesson-uploader"></div>
             </div>
           </div>
-          <div class="video-frame"><div id="lesson-video" class="lesson-video"></div></div>
+          <div class="video-frame">
+            <div id="lesson-video" class="lesson-video"></div>
+            <div id="video-hold" class="video-hold" hidden>
+              <p class="hold-label">Next note</p>
+              <p id="video-hold-note" class="hold-note"></p>
+              <span class="hold-bar"><i id="video-hold-fill"></i></span>
+            </div>
+          </div>
           <p id="video-error" class="form-error video-error" hidden></p>
 
           <div id="tab-strip" class="tab-strip">
