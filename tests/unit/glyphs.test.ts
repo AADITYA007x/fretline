@@ -208,3 +208,15 @@ describe("chord names above the tab", () => {
     expect(chordsFromChars(chars, { gray: new Uint8Array(0), w: 0, h: 0, x: 0, y: 0 }).map((c) => c.name)).toEqual(["Am", "Fmaj7"]);
   });
 });
+
+describe("rolled chords", () => {
+  it("a wavy line by a chord (Believer bar 53) is read as a roll, like a strum down", () => {
+    const gray = new Uint8Array(gunzipSync(readFileSync("tests/fixtures/believer-roll.1116x187.gray.gz")));
+    const f = findAll(gray, 1116, 187, [76, 94, 112, 130, 146, 164]);
+    const near = f.arrows.filter((a) => Math.abs(a.x - 290) < 8);
+    expect(near).toHaveLength(1);
+    const chord = f.tokens.filter((t) => t.x0 > 290 && t.x0 < 320);
+    expect(chord.length).toBeGreaterThanOrEqual(4);
+    expect(chord.every((t) => t.strum === "down")).toBe(true);
+  });
+});

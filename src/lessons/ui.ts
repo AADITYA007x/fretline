@@ -576,6 +576,15 @@ export function initLessons(): void {
   for (const ev of ["touchstart", "wheel"]) tr.addEventListener(ev, () => (userScrolledAt = Date.now()), { passive: true });
 
   // Leaving the Lessons section pauses the video; coming back shows it again.
+  // The video block has reached the top (it stays there): from then on it
+  // covers the strip under the status bar too.
+  const block = document.querySelector<HTMLElement>(".player-block")!;
+  const markStuck = () => {
+    const top = parseFloat(getComputedStyle(block).top) || 0;
+    block.classList.toggle("stuck", block.getBoundingClientRect().top <= top + 0.5 && window.scrollY > 0);
+  };
+  window.addEventListener("scroll", markStuck, { passive: true });
+  window.addEventListener("resize", markStuck);
   bus.on("viewchange", (v) => {
     if (v !== "lessons") {
       pausePlayer();

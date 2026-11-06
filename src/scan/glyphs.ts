@@ -253,6 +253,34 @@ function arrowOf(b: Blob, id: number, label: Int32Array, w: number, sp: number):
   return null;
 }
 
+/**
+ * A rolled-chord mark: a tall, thin wavy line by a chord (play it as a slow
+ * strum, low to high). Wiggles side to side; a bar line is straight.
+ */
+function isRoll(b: Blob, id: number, label: Int32Array, w: number, sp: number): boolean {
+  const bh = b.y1 - b.y0 + 1;
+  const bw = b.x1 - b.x0 + 1;
+  if (bh < sp * 2.2 || bw > sp * 0.7 || bw < 3) return false;
+  const rows = rowsOf(b, id, label, w).filter((r) => r.n);
+  if (rows.length < bh * 0.85) return false;
+  if (rows.some((r) => r.n > sp * 0.6)) return false;
+  // the middle of the stroke, row by row: count turns left/right
+  const mid = rows.map((r) => (r.x0 + r.x1) / 2);
+  let turns = 0;
+  let dir = 0;
+  let anchor = mid[0];
+  for (const x of mid) {
+    const d = x - anchor;
+    if (Math.abs(d) >= 1) {
+      const s = Math.sign(d);
+      if (dir && s !== dir) turns++;
+      dir = s;
+      anchor = x;
+    }
+  }
+  return turns >= Math.max(4, (bh / sp) * 1.5);
+}
+
 /** A hammer-on/pull-off (or tie) arc: a thin curve wider than a digit, not tall. */
 function isArc(m: Uint8Array, w: number, b: { x0: number; y0: number; x1: number; y1: number; bw: number; bh: number }, sp: number): boolean {
   if (b.bw < sp * 0.7 || b.bw > sp * 5 || b.bh < 2 || b.bh > sp * 0.8) return false;
@@ -392,6 +420,8 @@ export function findAll(gray: Uint8Array, w: number, h: number, lines: number[])
   found.forEach((b, k) => {
     const dir = arrowOf(b, k + 1, label, w, sp);
     if (dir) arrows.push({ x: (b.x0 + b.x1) / 2, dir });
+    // a rolled chord is played like a strum down (low string first)
+    else if (isRoll(b, k + 1, label, w, sp)) arrows.push({ x: (b.x0 + b.x1) / 2, dir: "down" });
   });
   const arcs = found
     .map((b) => ({ ...b, bw: b.x1 - b.x0 + 1, bh: b.y1 - b.y0 + 1 }))

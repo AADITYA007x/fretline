@@ -60,6 +60,11 @@ describe("notebook style", () => {
     expect(cells.map((c) => c.top)).toEqual(["0+3", "0+4"]);
   });
 
+  it("a slide in notes played together shows where it starts (1→5)", () => {
+    const cells = toCells([n(1, 6, 0, { tech: "mute" }), n(1, 3, 1), n(1, 2, 1), n(2, 3, 5, { tech: "slide" }), n(2, 2, 5, { tech: "slide" })]);
+    expect(cells.map((c) => c.top)).toEqual(["✋+1+1", "1→5+1→5"]);
+  });
+
   it("a new chord or held shape starts a new line", () => {
     const notes = [0, 1, 2, 3, 4].map((k) => n(1 + k * 0.3, 1, k));
     const strum = [n(3, 5, 3, { strum: "down" }), n(3, 4, 2), n(3, 2, 1)];
