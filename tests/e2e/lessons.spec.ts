@@ -373,6 +373,16 @@ test.describe("reading tab from the video", () => {
     await expect(lines.first().locator(".nb-cells .nb-top").first()).toHaveText("[Am]");
     await expect(page.locator(".nb-cell .nb-top", { hasText: "3→5" })).toHaveCount(1);
     await expect(page.locator(".nb-cell .nb-top", { hasText: "2+0" })).toHaveCount(1);
+    // tap the chord name: its shape, as a chord box
+    await page.click('#nb-lines .nb-chordtag[data-chord="Am"]');
+    await expect(page.locator("#chord-sheet")).toBeVisible();
+    await expect(page.locator("#chord-title")).toHaveText("Am");
+    await expect(page.locator("#chord-body .chord-box").first()).toBeVisible();
+    await page.waitForTimeout(400);
+    await shot(page, "34-chord-shape", info.project.name);
+    await page.keyboard.press("Escape");
+    await page.locator("#sheet-backdrop").click({ force: true }).catch(() => {});
+    await expect(page.locator("#chord-sheet")).toBeHidden();
     await lines.nth(1).locator(".nb-tick").click();
     await expect(page.locator("#nb-progress")).toHaveText("1 of 3 lines done");
     await lines.nth(2).locator(".nb-play").click();
@@ -419,13 +429,24 @@ test.describe("reading tab from the video", () => {
     await expect.poll(() => page.evaluate(() => (window as any).__plucks)).toBeGreaterThan(5);
     expect(await page.evaluate(() => (window as any).__yt.muted)).toBe(true);
     await expect(page.locator(".fretboard .fb-dot.now, .fretboard .fb-open.now").first()).toBeAttached();
+    // the note being played is lit, not the chord name or held shape
+    await expect(page.locator("#pr-line .nb-cell.lit")).toHaveCount(1);
+    await expect(page.locator("#pr-line .nb-cell.lit.nb-chordtag")).toHaveCount(0);
     await shot(page, "33-practice", info.project.name);
     // up to the video's sound at 0.5×: the video plays from the part, unmuted
     await page.click("#pr-up");
     await page.click("#pr-up");
     await expect(page.locator(".pr-rung.now")).toHaveText("0.5×");
     await expect.poll(() => page.evaluate(() => (window as any).__yt.rate)).toBe(0.5);
-    expect(await page.evaluate(() => (window as any).__yt.muted)).toBe(false);
+    // a silent run-up, then the video's sound from the first note of the line
+    await expect.poll(() => page.evaluate(() => (window as any).__yt.muted), { timeout: 5000 }).toBe(false);
+    // and it stops before the notes after the line
+    await expect.poll(() => page.evaluate(() => (window as any).__yt.state), { timeout: 10_000 }).toBe(2);
+    const stoppedAt = await page.evaluate(() => (window as any).__yt.t);
+    expect(stoppedAt).toBeLessThan(4.0); // line 1 is 2.0–3.75 s; the next note is at 4.0
+    // next line
+    await page.click("#pr-next-line");
+    await expect(page.locator("#pr-from")).toHaveValue("2");
     // stop at 0.75×
     await page.click('.pr-seg[data-opt="goal"] button[data-v="0.75"]');
     await expect(page.locator(".pr-rung")).toHaveText(["1 by 1", "0.25×", "0.5×", "0.75×"]);

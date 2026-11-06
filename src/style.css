@@ -1945,7 +1945,8 @@ html.in-practice body {
 
 .pr-part {
   display: flex;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 8px 10px;
   align-items: center;
   font-size: 14px;
   color: var(--bone-dim);
@@ -2118,7 +2119,7 @@ html.in-practice body {
 
 .pr-opt {
   display: grid;
-  grid-template-columns: 52px 1fr;
+  grid-template-columns: 58px 1fr;
   align-items: center;
   gap: 8px;
   font-size: 13px;
@@ -2156,6 +2157,104 @@ html.in-practice body {
 
 .pr-hint {
   margin-top: 14px;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+/* --- Chord shapes (tap a [chord] or a held shape) ------------------------------------------ */
+.nb-chordtag,
+.nb-cell[data-shape] {
+  cursor: pointer;
+}
+
+.nb-chordtag .nb-top {
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+.nb-cell.hold[data-shape] .nb-top {
+  text-decoration: underline dotted var(--bone-dim);
+  text-underline-offset: 3px;
+}
+
+.cb-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 18px;
+}
+
+.cb-fig {
+  margin: 0;
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+}
+
+.cb-fig figcaption {
+  font: 600 13px var(--ui);
+  color: var(--bone-dim);
+}
+
+.chord-box {
+  width: 160px;
+  height: auto;
+}
+
+.cb-nut {
+  stroke: var(--bone);
+  stroke-width: 5;
+}
+
+.cb-nut.thin,
+.cb-fret {
+  stroke: rgba(236, 227, 211, 0.4);
+  stroke-width: 1.5;
+}
+
+.cb-string {
+  stroke: rgba(236, 227, 211, 0.7);
+  stroke-width: 1.2;
+}
+
+.cb-dot {
+  fill: var(--accent);
+}
+
+.cb-open {
+  fill: none;
+  stroke: var(--bone);
+  stroke-width: 1.6;
+}
+
+.cb-mark,
+.cb-base,
+.cb-name {
+  fill: var(--bone-dim);
+  font: 600 12px var(--ui);
+  text-anchor: middle;
+}
+
+.cb-mark {
+  font-size: 15px;
+  fill: var(--off);
+}
+
+.cb-finger {
+  fill: #1b130d;
+  font: 700 11px var(--ui);
+  text-anchor: middle;
+}
+
+.cb-desc {
+  max-width: 170px;
+  margin: 0;
+  font-size: 12.5px;
+  text-align: center;
+}
+
+.cb-note {
+  margin-top: 12px;
   font-size: 12.5px;
   line-height: 1.45;
 }

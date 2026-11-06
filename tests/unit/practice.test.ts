@@ -54,6 +54,13 @@ describe("fingers", () => {
   it("one finger per fret from the lowest", () => {
     expect(suggestFingers([{ string: 5, fret: 3 }, { string: 4, fret: 2 }, { string: 3, fret: 0 }, { string: 2, fret: 1 }])).toEqual([3, 2, null, 1]);
   });
+  it("open chords get their usual fingers (Am, D, E, C)", () => {
+    const f = (shape: string) => suggestFingers([...shape].reverse().map((c, i) => ({ string: i + 1, fret: c === "x" ? 0 : Number(c), tech: c === "x" ? ("mute" as const) : undefined })));
+    expect(f("x02210")).toEqual([null, 1, 3, 2, null, null]);
+    expect(f("xx0232")).toEqual([2, 3, 1, null, null, null]);
+    expect(f("022100")).toEqual([null, null, 1, 3, 2, null]);
+    expect(f("x32010")).toEqual([null, 1, null, 2, 3, null]);
+  });
   it("a barre is the 1st finger", () => {
     expect(suggestFingers([{ string: 3, fret: 1 }, { string: 2, fret: 1 }, { string: 1, fret: 1 }, { string: 4, fret: 3 }])).toEqual([1, 1, 1, 3]);
   });

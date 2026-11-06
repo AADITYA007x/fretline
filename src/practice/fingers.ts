@@ -19,13 +19,25 @@ export function suggestFingers(notes: Pick<TabNote, "string" | "fret" | "tech" |
   const hi = Math.max(...frets);
   const lo = Math.min(...frets, ...around.filter((f) => f > 0 && f >= hi - 3 && f <= hi));
   const distinct = [...new Set(frets)].sort((a, b) => a - b);
-  for (const { n, i } of held) {
-    if (n.finger && SPOKEN[n.finger]) {
-      out[i] = SPOKEN[n.finger];
+  // up the neck, and on one fret from the thicker string: each finger at
+  // least one more than the last (Am: B1 → 1, D2 → 2, G2 → 3)
+  const order = [...held].sort((a, b) => a.n.fret - b.n.fret || b.n.string - a.n.string);
+  const barre = held.filter(({ n }) => n.fret === lo).length >= 3;
+  let prev = 0;
+  for (const { n, i } of order) {
+    if (barre && n.fret === lo) {
+      out[i] = 1;
+      prev = 1;
       continue;
     }
-    if (hi - lo <= 3) out[i] = Math.min(4, n.fret - lo + 1) as FingerNo;
-    else out[i] = Math.min(4, distinct.indexOf(n.fret) + 1) as FingerNo;
+    if (n.finger && SPOKEN[n.finger]) {
+      out[i] = SPOKEN[n.finger];
+      prev = out[i]!;
+      continue;
+    }
+    const byFret = hi - lo <= 3 ? n.fret - lo + 1 : distinct.indexOf(n.fret) + 1;
+    out[i] = Math.min(4, Math.max(prev + 1, byFret)) as FingerNo;
+    prev = out[i]!;
   }
   // a fret held on 3+ strings at the bottom: barre with the 1st finger
   const atLo = held.filter(({ n }) => n.fret === lo);

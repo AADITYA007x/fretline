@@ -15,6 +15,10 @@ export interface Cell {
   mark?: string;
   hammer?: boolean;
   chord?: string;
+  /** The chord's shape as played here (frets for strings 1..6, -1 = not played). */
+  chordShape?: number[];
+  /** A held shape's frets (strings 1..6, -1 = not played). */
+  shape?: number[];
   unsure?: boolean;
   t: number;
 }
@@ -65,10 +69,21 @@ export function toCells(notes: TabNote[], chords: { t: number; name: string }[] 
   }
   const last = new Map<number, number>();
   let held = "";
+  // a chord name's shape as played: on each string, the fret used most
+  // while that chord lasts (until the next name, at most 4 s)
+  const names = [...chords].sort((a, b) => a.t - b.t);
+  const playedShape = (t: number): number[] => {
+    const next = names.find((c) => c.t > t + 0.05)?.t ?? Infinity;
+    const end = Math.min(next, t + 4);
+    const counts = Array.from({ length: 6 }, () => new Map<number, number>());
+    for (const n of sorted) if (n.t >= t - 0.05 && n.t < end - 0.02 && n.tech !== "mute") counts[n.string - 1].set(n.fret, (counts[n.string - 1].get(n.fret) ?? 0) + 1);
+    return counts.map((m) => (m.size ? [...m].sort((a, b) => b[1] - a[1])[0][0] : -1));
+  };
   const cells: Cell[] = [];
   for (const g of groups) {
     g.sort((a, b) => b.string - a.string);
     const chord = chords.find((c) => Math.abs(c.t - g[0].t) < TOGETHER)?.name;
+    const chordShape = chord ? playedShape(g[0].t) : undefined;
     const unsure = g.some((n) => n.unsure);
     const strings = g.map((n) => String(n.string));
     if (g.length === 1) {
@@ -80,7 +95,7 @@ export function toCells(notes: TabNote[], chords: { t: number; name: string }[] 
       if (n.tech === "pull") mark = "pull";
       const f = fingerMark(n);
       if (f) top += `·${f}`;
-      cells.push({ top, bottom: strings[0], mark, hammer: n.tech === "hammer", chord, unsure, t: n.t });
+      cells.push({ top, bottom: strings[0], mark, hammer: n.tech === "hammer", chord, chordShape, unsure, t: n.t });
     } else if (g.some((n) => n.tech === "mute") && (g.every((n) => n.tech === "mute") || !g.some((n) => n.strum))) {
       // Slap (the video's x's): one hand for all the muted strings, then
       // anything played with it: ✋+2 over 21+3.
@@ -90,6 +105,7 @@ export function toCells(notes: TabNote[], chords: { t: number; name: string }[] 
         top: [SLAP, ...rest.map((n) => (n.tech === "slide" ? slid(n, last.get(n.string)) : fretMark(n)))].join("+"),
         bottom: [muted.map((n) => n.string).join(""), ...rest.map((n) => String(n.string))].join("+"),
         chord,
+        chordShape,
         unsure,
         t: g[0].t,
       });
@@ -97,13 +113,15 @@ export function toCells(notes: TabNote[], chords: { t: number; name: string }[] 
       // A strummed chord: the shape held (once), then "roll" over the strings.
       const fretted = g.filter((n) => n.tech !== "mute" && n.fret > 0);
       const shape = fretted.length ? `[${fretted.map((n) => n.fret).join(" ")} / ${fretted.map((n) => n.string).join(" ")}]` : "";
-      if (shape && shape !== held) cells.push({ top: shape, bottom: "", mark: "hold", chord, unsure: false, t: g[0].t - 0.001 });
+      const frets = [-1, -1, -1, -1, -1, -1];
+      for (const n of g) if (n.tech !== "mute") frets[n.string - 1] = n.fret;
+      if (shape && shape !== held) cells.push({ top: shape, bottom: "", mark: "hold", chord, chordShape, shape: frets, unsure: false, t: g[0].t - 0.001 });
       held = shape;
       const arrow = g.find((n) => n.strum)?.strum === "up" ? "↑" : "";
-      cells.push({ top: `roll${arrow}`, bottom: strings.join(""), chord: shape ? undefined : chord, unsure, t: g[0].t });
+      cells.push({ top: `roll${arrow}`, bottom: strings.join(""), chord: shape ? undefined : chord, chordShape: shape ? undefined : chordShape, unsure, t: g[0].t });
     } else {
       const tops = g.map((n) => (n.tech === "slide" ? slid(n, last.get(n.string)) : fretMark(n)));
-      cells.push({ top: tops.join("+"), bottom: strings.join("+"), chord, unsure, t: g[0].t });
+      cells.push({ top: tops.join("+"), bottom: strings.join("+"), chord, chordShape, unsure, t: g[0].t });
     }
     for (const n of g) if (n.tech !== "mute") last.set(n.string, n.fret);
   }
@@ -174,12 +192,13 @@ export function clock(sec: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
-export function cellHtml(c: Cell): string {
-  const cls = ["nb-cell", c.hammer ? "hammer" : "", c.unsure ? "unsure" : "", c.mark === "hold" ? "hold" : ""].filter(Boolean).join(" ");
+export function cellHtml(c: Cell, extra = ""): string {
+  const cls = ["nb-cell", extra, c.hammer ? "hammer" : "", c.unsure ? "unsure" : "", c.mark === "hold" ? "hold" : ""].filter(Boolean).join(" ");
   // The chord name sits in the line before its first note: "[D] 1/1 2/2 …"
-  const chord = c.chord ? `<span class="nb-cell nb-chordtag"><span class="nb-top">[${escapeHtml(c.chord)}]</span><span class="nb-bottom">&nbsp;</span></span>` : "";
+  const chord = c.chord ? `<span class="nb-cell nb-chordtag" role="button" tabindex="0" data-chord="${escapeHtml(c.chord)}" data-shape="${(c.chordShape ?? []).join(",")}" aria-label="Chord ${escapeHtml(c.chord)}: show the shape"><span class="nb-top">[${escapeHtml(c.chord)}]</span><span class="nb-bottom">&nbsp;</span></span>` : "";
   const mark = c.mark && c.mark !== "hold" ? `<span class="nb-mark">${escapeHtml(c.mark)}</span>` : "";
-  return `${chord}<span class="${cls}">${mark}<span class="nb-top">${escapeHtml(c.top)}</span><span class="nb-bottom">${escapeHtml(c.bottom) || "&nbsp;"}</span></span>`;
+  const shapeAttr = c.shape ? ` role="button" tabindex="0" data-shape="${c.shape.join(",")}" aria-label="Held shape: show it"` : "";
+  return `${chord}<span class="${cls}"${shapeAttr}>${mark}<span class="nb-top">${escapeHtml(c.top)}</span><span class="nb-bottom">${escapeHtml(c.bottom) || "&nbsp;"}</span></span>`;
 }
 
 /** Plain text, to paste anywhere: "3. 0:41 [Am]  5/1  3→5/2  0+2/4+3 …" */
@@ -198,7 +217,7 @@ export function toText(title: string, lines: NoteLine[]): string {
 export function toPrintHtml(title: string, lines: NoteLine[], done: number[] = []): string {
   const rows = lines
     .map(
-      (l) => `<div class="line"><span class="no">${l.n}</span><span class="box">${done.includes(l.n) ? "✓" : ""}</span><span class="time">${clock(l.t)}</span><span class="cells">${l.cells.map(cellHtml).join("")}</span></div>`,
+      (l) => `<div class="line"><span class="no">${l.n}</span><span class="box">${done.includes(l.n) ? "✓" : ""}</span><span class="time">${clock(l.t)}</span><span class="cells">${l.cells.map((c) => cellHtml(c)).join("")}</span></div>`,
     )
     .join("");
   return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>

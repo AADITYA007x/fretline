@@ -186,8 +186,10 @@
             </div>
           </div>
           <div class="pr-part">
+            <button id="pr-prev-line" class="ctl small" type="button" aria-label="Previous line">◀</button>
             <label>Line <select id="pr-from" aria-label="From line"></select></label>
             <label>to <select id="pr-to" aria-label="To line"></select></label>
+            <button id="pr-next-line" class="ctl small" type="button" aria-label="Next line">▶</button>
           </div>
           <div id="pr-ladder" class="pr-ladder" aria-label="Steps"></div>
           <p id="pr-stage" class="pr-stage"></p>
@@ -208,6 +210,8 @@
             <div class="pr-opt"><span>Start</span><div class="seg pr-seg" role="group" data-opt="start"><button type="button" data-v="step">1 by 1</button><button type="button" data-v="0.25">0.25×</button><button type="button" data-v="0.5">0.5×</button></div></div>
             <div class="pr-opt"><span>Goal</span><div class="seg pr-seg" role="group" data-opt="goal"><button type="button" data-v="0.5">0.5×</button><button type="button" data-v="0.75">0.75×</button><button type="button" data-v="1">1×</button></div></div>
             <div class="pr-opt"><span>Pace</span><div class="seg pr-seg" role="group" data-opt="pace"><button type="button" data-v="slow">Slow</button><button type="button" data-v="normal">Normal</button><button type="button" data-v="quick">Quick</button></div></div>
+            <div class="pr-opt"><span>1 by 1</span><div class="seg pr-seg" role="group" data-opt="gap"><button type="button" data-v="2">2 s a note</button><button type="button" data-v="3">3 s</button><button type="button" data-v="4">4 s</button></div></div>
+            <div class="pr-opt"><span>At goal</span><div class="seg pr-seg" role="group" data-opt="after"><button type="button" data-v="repeat">Keep going</button><button type="button" data-v="next">Next line</button></div></div>
             <div class="pr-opt"><span>Sound</span><div class="seg pr-seg" role="group" data-opt="sound"><button type="button" data-v="auto">Auto</button><button type="button" data-v="pluck">Pluck</button><button type="button" data-v="video">Video</button></div></div>
           </div>
           <div class="pr-metro">
@@ -294,6 +298,12 @@
       <p id="sync-line" class="muted sync-line"></p>
       <button id="sign-out-btn" class="btn-secondary">Sign out</button>
       <p id="app-version" class="muted version"></p>
+    </section>
+
+    <section id="chord-sheet" class="sheet" role="dialog" aria-label="Chord shape" hidden>
+      <div class="sheet-grip"></div>
+      <h2 id="chord-title" class="sheet-title">Chord</h2>
+      <div id="chord-body"></div>
     </section>
 
     <section id="tuning-sheet" class="sheet tall" role="dialog" aria-label="Choose a tuning" hidden>

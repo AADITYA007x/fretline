@@ -5,6 +5,22 @@ import { $ } from "../utils";
 import { tabScan } from "../scan/native";
 import { cellHtml, clock, doneLines, notebookLines, setDone, toPrintHtml, toText, type NoteLine } from "./notebook";
 import { currentTab, onTabChange } from "./strip";
+import { chordSheetHtml } from "./chords";
+import { openSheet } from "../ui/sheets";
+
+/** Tapped a chord name or a held shape: show where the fingers go. */
+export function showShape(el: HTMLElement): void {
+  const name = el.dataset.chord ?? null;
+  const shape = el.dataset.shape ? el.dataset.shape.split(",").map(Number) : null;
+  $("chord-title").textContent = name ?? "Hold this shape";
+  $("chord-body").innerHTML = chordSheetHtml(name, shape && shape.length === 6 ? shape : null);
+  openSheet("chord-sheet");
+}
+
+/** The chord name / held shape under a tap, if any. */
+export function shapeTarget(target: EventTarget | null): HTMLElement | null {
+  return (target as HTMLElement | null)?.closest<HTMLElement>(".nb-chordtag, .nb-cell[data-shape]") ?? null;
+}
 
 let lines: NoteLine[] = [];
 let shownFor: string | null = null;
@@ -43,7 +59,7 @@ export function renderNotebook(): void {
       (l) => `<div class="nb-line${done.includes(l.n) ? " done" : ""}" data-line="${l.n}">
   <button type="button" class="nb-tick" aria-pressed="${done.includes(l.n)}" aria-label="Line ${l.n} done">${done.includes(l.n) ? "✓" : ""}</button>
   <button type="button" class="nb-play" data-t="${l.t}" aria-label="Play line ${l.n} from ${clock(l.t)}"><span class="nb-no">${l.n}</span><span class="nb-time">${clock(l.t)}</span></button>
-  <div class="nb-cells">${l.cells.map(cellHtml).join("")}</div>
+  <div class="nb-cells">${l.cells.map((c) => cellHtml(c)).join("")}</div>
 </div>`,
     )
     .join("");
@@ -112,6 +128,11 @@ export function initNotebook(jump: (sec: number) => void, title: () => string): 
     const target = e.target as HTMLElement;
     const row = target.closest<HTMLElement>(".nb-line");
     if (!row) return;
+    const shapeEl = shapeTarget(target);
+    if (shapeEl) {
+      showShape(shapeEl);
+      return;
+    }
     const n = Number(row.dataset.line);
     if (target.closest(".nb-tick")) {
       const { videoId } = currentTab();

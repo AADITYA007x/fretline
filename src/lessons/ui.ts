@@ -515,7 +515,11 @@ export function initLessons(): void {
     seek: (sec) => player?.seek(sec),
     setRate: (r) => player?.setRate(r),
     mute: (on) => player?.setMuted(on),
-    done: () => player?.setRate(playRate()),
+    done: () => {
+      player?.setRate(playRate());
+      // lines ticked in practice show in My notes
+      renderNotebook();
+    },
   });
   const practice = (at: { line?: number; t?: number }) => {
     if (!current) return;

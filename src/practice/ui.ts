@@ -5,10 +5,11 @@
 import { bus } from "../state";
 import { pushStep, removeStep } from "../ui/back";
 import { $, storage } from "../utils";
-import { cellHtml, clock, doneLines, notebookLines, type NoteLine } from "../tabs/notebook";
+import { cellHtml, clock, doneLines, notebookLines, setDone, type NoteLine } from "../tabs/notebook";
 import { audio, scheduleClick, scheduleColumn, stopPluck } from "../tabs/pluck";
 import { STRING_NAMES, type TabNote } from "../tabs/tab";
 import { currentTab, currentCapo } from "../tabs/strip";
+import { shapeTarget, showShape } from "../tabs/notebook-ui";
 import { fretboardSvg, fretWindow, type Window } from "./fretboard";
 import { ladder, stageLabel, type LadderOptions, type Stage } from "./ladder";
 import { beatsBetween, estimateBeat, tapBpm, type Beat } from "./tempo";
@@ -31,7 +32,8 @@ interface Col {
 
 const OPTS_KEY = "fretline:practice";
 const BEAT_KEY = (id: string) => `fretline:beat:${id}`;
-const STEP_SECONDS = 1.6;
+/** Seconds on each note in 1 by 1 (you choose 2, 3 or 4). */
+let stepSeconds = [2, 3, 4].includes(storage.get<number>("fretline:practice-gap", 3)) ? storage.get<number>("fretline:practice-gap", 3) : 3;
 const GAP_MS = 900;
 
 let ctl: PracticeControls | null = null;
@@ -39,11 +41,15 @@ let videoId: string | null = null;
 let lines: NoteLine[] = [];
 let allCols: Col[] = [];
 let cols: Col[] = [];
+/** The first note after the part (the video stops just before it). */
+let after: Col | undefined;
 let opts: LadderOptions = { start: "step", goal: 1, pace: "normal", sound: "auto", ...storage.get<Partial<LadderOptions>>(OPTS_KEY, {}) };
 let stages: Stage[] = [];
 let stageIdx = 0;
 let loopIdx = 0;
 let running = false;
+/** At the goal speed: keep looping, or (after its rounds) tick the lines done and go on. */
+let afterGoal: "repeat" | "next" = storage.get<string>("fretline:practice-after", "repeat") === "next" ? "next" : "repeat";
 let clickOn = storage.get<boolean>("fretline:practice-click", false) === true;
 let beat: Beat | null = null;
 let taps: number[] = [];
@@ -51,7 +57,7 @@ let win: Window = { from: 0, to: 7 };
 
 type Pass =
   | { kind: "pluck"; times: number[]; end: number; ac: AudioContext }
-  | { kind: "video"; lastT: number; ac: AudioContext | null };
+  | { kind: "video"; lastT: number; ac: AudioContext | null; t0: number; stopAt: number; heard: boolean };
 let pass: Pass | null = null;
 let gapTimer: ReturnType<typeof setTimeout> | undefined;
 let raf = 0;
@@ -84,6 +90,7 @@ function pickPart(): void {
   const a = lines[from - 1];
   const b = lines[to - 1];
   cols = a && b ? allCols.filter((c) => c.t >= a.t - 0.001 && c.t <= b.end + 0.001) : [];
+  after = cols.length ? allCols.find((c) => c.t > cols[cols.length - 1].t + 0.001) : undefined;
   win = fretWindow(cols.flatMap((c) => c.notes.map((n) => n.fret)));
   shownCol = -2;
 }
@@ -104,7 +111,9 @@ function renderLadder(): void {
 }
 
 function renderOpts(): void {
-  document.querySelectorAll<HTMLElement>(".pr-seg").forEach((g) => {
+  document.querySelectorAll<HTMLButtonElement>('.pr-seg[data-opt="after"] button').forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === afterGoal)));
+  document.querySelectorAll<HTMLButtonElement>('.pr-seg[data-opt="gap"] button').forEach((b) => b.setAttribute("aria-pressed", String(Number(b.dataset.v) === stepSeconds)));
+  document.querySelectorAll<HTMLElement>(".pr-seg:not([data-opt=after]):not([data-opt=gap])").forEach((g) => {
     const key = g.dataset.opt as keyof LadderOptions;
     g.querySelectorAll<HTMLButtonElement>("button").forEach((b) => b.setAttribute("aria-pressed", String(String(opts[key]) === b.dataset.v)));
   });
@@ -157,9 +166,10 @@ function renderCol(i: number): void {
   }
   let lit = -1;
   line.cells.forEach((cell, k) => {
-    if (c && cell.t <= c.t + 0.02) lit = k;
+    // the note itself (not a held shape or the chord name before it)
+    if (c && cell.mark !== "hold" && cell.t <= c.t + 0.02) lit = k;
   });
-  $("pr-line").innerHTML = `<span class="pr-line-no">${line.n}</span>` + line.cells.map((cell, k) => cellHtml(cell).replace('class="nb-cell', `class="nb-cell${k === lit ? " lit" : ""}`)).join("");
+  $("pr-line").innerHTML = `<span class="pr-line-no">${line.n}</span>` + line.cells.map((cell, k) => cellHtml(cell, k === lit ? "lit" : "")).join("");
 }
 
 // --- Running the ladder ------------------------------------------------------------------
@@ -190,22 +200,26 @@ async function startPass(): Promise<void> {
     if (!running) return;
     const base = ac.currentTime + 0.3;
     const capo = currentCapo();
-    const times = cols.map((c, i) => base + (s.speed === "step" ? i * STEP_SECONDS : (c.t - t0) / s.speed));
+    const times = cols.map((c, i) => base + (s.speed === "step" ? i * stepSeconds : (c.t - t0) / s.speed));
     cols.forEach((c, i) => scheduleColumn(ac, c.notes, capo, times[i]));
     if (clickOn && beat && s.speed !== "step") {
       const r = s.speed;
       for (const b of beatsBetween(beat, t0 - 0.01, t1 + 0.5)) scheduleClick(ac, base + (b - t0) / r, isBar(b));
     }
-    const end = times[times.length - 1] + (s.speed === "step" ? STEP_SECONDS : 1.2);
+    const end = times[times.length - 1] + (s.speed === "step" ? stepSeconds : 1.2);
     pass = { kind: "pluck", times, end, ac };
   } else {
     const r = s.speed === "step" ? 0.5 : s.speed;
-    ctl.mute(false);
+    // a short silent run-up (muted until the first note, so the notes
+    // before the part aren't heard) and a stop just before the next note
+    ctl.mute(true);
     ctl.setRate(r);
     const from = Math.max(0, t0 - 0.6 * r);
+    const last = cols[cols.length - 1].t;
+    const stopAt = after ? Math.max(last + 0.08, after.t - 0.25 * r) : last + 0.5;
     ctl.seek(from);
     ctl.play();
-    pass = { kind: "video", lastT: from, ac: clickOn ? await audio() : null };
+    pass = { kind: "video", lastT: from, ac: clickOn ? await audio() : null, t0, stopAt, heard: false };
   }
 }
 
@@ -224,6 +238,18 @@ function finishPass(): void {
     stageIdx++;
     loopIdx = 0;
     bus.emit("toast", `Up a step: ${stageLabel(stage())}`);
+  } else if (loopIdx >= s.loops && afterGoal === "next") {
+    // got it at the goal speed: tick these lines and start on the next ones
+    const from = Number(($("pr-from") as HTMLSelectElement).value);
+    const to = Number(($("pr-to") as HTMLSelectElement).value);
+    if (videoId) for (let n = from; n <= to; n++) setDone(videoId, n, true);
+    if (to >= lines.length) {
+      bus.emit("toast", "Done: you've reached the last line");
+      stop();
+      return;
+    }
+    shiftLines(to - from + 1);
+    bus.emit("toast", `Line ${from}${to > from ? `–${to}` : ""} done ✓ On to line ${from + (to - from + 1)}`);
   }
   renderLadder();
   gapTimer = setTimeout(() => void startPass(), GAP_MS);
@@ -243,7 +269,13 @@ function tick(): void {
     // the click: a beat passed since the last frame
     if (pass.ac && beat && t > pass.lastT && t - pass.lastT < 0.5) for (const b of beatsBetween(beat, pass.lastT + 1e-4, t)) scheduleClick(pass.ac, pass.ac.currentTime, isBar(b));
     pass.lastT = t;
-    if (cols.length && t >= cols[cols.length - 1].t + 0.6) {
+    if (!pass.heard && t >= pass.t0 - 0.06) {
+      pass.heard = true;
+      ctl.mute(false);
+    }
+    if (t >= pass.stopAt) {
+      // (muting lands a moment sooner than pausing)
+      ctl.mute(true);
       ctl.pause();
       finishPass();
     }
@@ -275,6 +307,21 @@ function move(by: number): void {
   loopIdx = 0;
   renderLadder();
   if (running) void startPass();
+}
+
+/** Move the part by `by` lines (keeping how many lines it covers). */
+function shiftLines(by: number): void {
+  const fromSel = $("pr-from") as HTMLSelectElement;
+  const toSel = $("pr-to") as HTMLSelectElement;
+  const from = Number(fromSel.value);
+  const span = Number(toSel.value) - from;
+  const nf = Math.max(1, Math.min(lines.length - span, from + by));
+  fromSel.value = String(nf);
+  toSel.value = String(nf + span);
+  pickPart();
+  stageIdx = 0;
+  loopIdx = 0;
+  renderLadder();
 }
 
 // --- Open / close ------------------------------------------------------------------------
@@ -341,6 +388,16 @@ export function initPractice(controls: PracticeControls): void {
   $("pr-close").addEventListener("click", () => closePractice());
   $("pr-play").addEventListener("click", () => (running ? stop() : start()));
   $("pr-up").addEventListener("click", () => move(1));
+  $("pr-line").addEventListener("click", (e) => {
+    const el = shapeTarget(e.target);
+    if (el) showShape(el);
+  });
+  const lineStep = (by: number) => {
+    shiftLines(by);
+    if (running) void startPass();
+  };
+  $("pr-prev-line").addEventListener("click", () => lineStep(-1));
+  $("pr-next-line").addEventListener("click", () => lineStep(1));
   $("pr-back").addEventListener("click", () => move(-1));
   for (const id of ["pr-from", "pr-to"]) {
     $(id).addEventListener("change", () => {
@@ -355,8 +412,21 @@ export function initPractice(controls: PracticeControls): void {
     g.addEventListener("click", (e) => {
       const b = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-v]");
       if (!b) return;
-      const key = g.dataset.opt as keyof LadderOptions;
       const v = b.dataset.v!;
+      if (g.dataset.opt === "gap") {
+        stepSeconds = Number(v) || 3;
+        storage.set("fretline:practice-gap", stepSeconds);
+        renderOpts();
+        if (running && stage().speed === "step") void startPass();
+        return;
+      }
+      if (g.dataset.opt === "after") {
+        afterGoal = v === "next" ? "next" : "repeat";
+        storage.set("fretline:practice-after", afterGoal);
+        renderOpts();
+        return;
+      }
+      const key = g.dataset.opt as keyof LadderOptions;
       (opts as unknown as Record<string, unknown>)[key] = key === "pace" || key === "sound" || v === "step" ? v : Number(v);
       storage.set(OPTS_KEY, opts);
       renderOpts();
