@@ -58,6 +58,7 @@ const stripControls: StripControls = {
     return i >= 0 ? lines[i].text : "";
   },
   rate: () => playRate(),
+  mute: (on) => player?.setMuted(on),
   hold: (text, ms, resume = true) => {
     const card = $("video-hold");
     if (text !== null) {

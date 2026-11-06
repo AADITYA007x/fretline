@@ -37,6 +37,8 @@ export interface StripControls {
   hold(text: string | null, ms: number, resume?: boolean): void;
   /** Playback speed (1 = normal). */
   rate(): number;
+  /** Silence the video's own sound (or bring it back). */
+  mute(on: boolean): void;
 }
 
 const FINGER_MARK: Record<Finger, string> = { thumb: "T", index: "i", middle: "m", ring: "r", pinky: "p" };
@@ -313,7 +315,13 @@ export function setStepMode(on: boolean): void {
 }
 
 /** You pressed play (or pause) yourself: drop any hold in progress. */
+/** With the pluck on, 1 by 1 is Fretline's sound only (no overlap with the video). */
+function applyMute(): void {
+  controls?.mute(stepOn && pluckOn);
+}
+
 function renderPluckButton(): void {
+  applyMute();
   const b = $("strip-pluck");
   b.hidden = !stepOn;
   b.setAttribute("aria-pressed", String(pluckOn));
@@ -500,7 +508,7 @@ export function initStrip(): void {
     storage.set(PLUCK_KEY, pluckOn);
     if (!pluckOn) stopPluck();
     renderPluckButton();
-    bus.emit("toast", pluckOn ? "1 by 1 plays each note itself while the video waits" : "1 by 1: only the video's sound");
+    bus.emit("toast", pluckOn ? "1 by 1: Fretline plays each note (video muted)" : "1 by 1: the video's own sound");
   });
   // Scrolling the tape yourself keeps it there (with a way back).
   $("strip-staff").addEventListener(

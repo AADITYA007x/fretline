@@ -1095,15 +1095,53 @@ html.entry .app {
   padding-top: 4px;
 }
 
+/* In a lesson the lesson's own header replaces the app's. */
+html.in-lesson .topbar {
+  display: none;
+}
+
+/* The video with its controls right under it, staying on screen while
+   you scroll down to the tab, his words and your notes. */
+.player-block {
+  z-index: 5;
+  margin: 0 -16px;
+  padding: 0 16px 4px;
+  background: var(--board);
+  box-shadow: 0 8px 12px -10px rgba(0, 0, 0, 0.6);
+}
+
+/* (on a tall phone screen only: on a wide one it would cover everything) */
+@media (max-aspect-ratio: 4/5) {
+  .player-block {
+    position: sticky;
+    top: var(--safe-top);
+  }
+  /* covers the status bar area above it */
+  .player-block::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 100%;
+    height: var(--safe-top);
+    background: var(--board);
+  }
+}
+
+
 .lesson-top {
   display: flex;
   align-items: center;
   gap: 4px;
-  margin: 0 -8px 8px;
+  margin: 0 -8px 6px;
 }
 
 .lesson-top .icon-btn {
   flex: none;
+}
+
+.lesson-top .lesson-menu {
+  margin-left: auto;
 }
 
 .lesson-head {
@@ -1193,8 +1231,8 @@ html.entry .app {
 
 /* His words as he says them: the line, with the words said so far lit. */
 .saying {
-  min-height: 74px;
-  margin: 12px 0 4px;
+  min-height: 64px;
+  margin: 10px 0 12px;
   padding: 10px 14px;
   border-radius: 14px;
   background: var(--board-2);
@@ -1217,7 +1255,7 @@ html.entry .app {
   grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: 10px;
-  margin-top: 8px;
+  margin-top: 6px;
 }
 
 .time {
@@ -1256,16 +1294,16 @@ html.entry .app {
 }
 
 .lesson-controls {
-  display: flex;
-  justify-content: center;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr 1fr 1fr;
   align-items: center;
-  gap: 10px;
-  margin: 6px 0 14px;
+  gap: 8px;
+  margin: 2px 0 6px;
 }
 
 .ctl {
-  min-width: 56px;
-  min-height: 44px;
+  min-width: 0;
+  min-height: 42px;
   border-radius: 12px;
   border: 1px solid var(--bone-faint);
   background: none;
@@ -1274,9 +1312,9 @@ html.entry .app {
 }
 
 .ctl.step {
-  min-width: 52px;
-  padding: 0 8px;
+  padding: 0 4px;
   font-size: 13px;
+  white-space: nowrap;
 }
 
 .ctl.step[aria-pressed="true"] {
@@ -1294,7 +1332,8 @@ html.entry .app {
 
 .ctl.speed select {
   appearance: none;
-  min-width: 64px;
+  width: 100%;
+  min-width: 0;
   min-height: 42px;
   padding: 0 10px;
   border: 0;
@@ -1311,8 +1350,8 @@ html.entry .app {
 }
 
 .ctl.play {
-  width: 60px;
-  height: 60px;
+  width: 54px;
+  height: 54px;
   border-radius: 50%;
   border: 0;
   background: var(--accent);
@@ -1395,7 +1434,7 @@ html.entry .app {
 }
 .nb-line {
   display: grid;
-  grid-template-columns: 34px 1fr;
+  grid-template-columns: 30px 1fr;
   grid-template-areas: "tick head" "tick cells";
   column-gap: 8px;
   padding: 8px 6px 10px;
@@ -1449,7 +1488,7 @@ html.entry .app {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
-  gap: 6px 10px;
+  gap: 6px 8px;
   margin-top: 6px;
 }
 .nb-cell {
@@ -1461,7 +1500,7 @@ html.entry .app {
 }
 .nb-top {
   color: var(--bone);
-  font-size: 17px;
+  font-size: 16px;
   line-height: 1.15;
 }
 .nb-bottom {
@@ -1506,8 +1545,15 @@ html.entry .app {
   html.in-lesson .topbar,
   html.in-lesson .tabbar,
   html.in-lesson .update-banner,
-  html.in-lesson .lesson-view > :not(.video-frame) {
+  html.in-lesson .lesson-view > :not(.player-block),
+  html.in-lesson .player-block > :not(.video-frame) {
     display: none !important;
+  }
+  html.in-lesson .player-block {
+    position: static;
+    margin: 0;
+    padding: 0;
+    box-shadow: none;
   }
   html.in-lesson .app {
     padding: 0;
@@ -1526,8 +1572,8 @@ html.entry .app {
 
 /* --- Live tab strip ------------------------------------------------------------------------ */
 .tab-strip {
-  margin: 10px 0 0;
-  padding: 6px 0 4px;
+  margin: 8px 0 0;
+  padding: 4px 0 2px;
   border-radius: 14px;
   background: var(--board-2);
   border: 1px solid var(--bone-faint);
@@ -1539,7 +1585,7 @@ html.entry .app {
   justify-content: space-between;
   gap: 8px;
   padding: 0 4px 0 12px;
-  min-height: 36px;
+  min-height: 34px;
 }
 
 .strip-label {
@@ -1550,7 +1596,7 @@ html.entry .app {
 .strip-staff {
   display: flex;
   overflow-x: auto;
-  padding: 18px 8px 0;
+  padding: 16px 8px 2px;
   overscroll-behavior-x: contain;
 }
 
@@ -1651,6 +1697,9 @@ html.entry .app {
   min-width: 24px;
   background: var(--board-2);
   padding-left: 6px;
+  border-radius: 0;
+  /* notes scrolling under the string names fade out instead of being cut */
+  box-shadow: 8px 0 8px -2px var(--board-2);
 }
 
 .staff-cell {
@@ -1730,11 +1779,15 @@ html.entry .app {
 }
 
 .strip-tip {
-  margin: 6px 12px 4px;
+  margin: 4px 12px 4px;
   min-height: 20px;
   font-size: 14px;
   color: var(--bone-dim);
   font-style: italic;
+}
+
+.strip-tip:empty {
+  display: none;
 }
 
 /* note by note: what to play, while it waits */

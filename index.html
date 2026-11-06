@@ -79,13 +79,43 @@
               <div id="lesson-title" class="lesson-title"></div>
               <div id="lesson-uploader" class="lesson-uploader"></div>
             </div>
+            <button id="lesson-menu" class="icon-btn lesson-menu" aria-label="Menu">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10" /></svg>
+            </button>
           </div>
-          <div class="video-frame">
-            <div id="lesson-video" class="lesson-video"></div>
-            <div id="video-hold" class="video-hold" hidden>
-              <p class="hold-label">Next note</p>
-              <p id="video-hold-note" class="hold-note"></p>
-              <span class="hold-bar"><i id="video-hold-fill"></i></span>
+          <div class="player-block">
+            <div class="video-frame">
+              <div id="lesson-video" class="lesson-video"></div>
+              <div id="video-hold" class="video-hold" hidden>
+                <p class="hold-label">Next note</p>
+                <p id="video-hold-note" class="hold-note"></p>
+                <span class="hold-bar"><i id="video-hold-fill"></i></span>
+              </div>
+            </div>
+            <div class="seek-row">
+              <span id="lesson-time" class="time">0:00</span>
+              <div class="seek-wrap">
+                <input id="lesson-seek" type="range" min="0" max="1000" value="0" step="1" aria-label="Position in the lesson" />
+                <div id="chapter-ticks" class="chapter-ticks" aria-hidden="true"></div>
+              </div>
+              <span id="lesson-duration" class="time">0:00</span>
+            </div>
+            <div class="lesson-controls">
+              <button id="lesson-back5" class="ctl" aria-label="Back 5 seconds">−5s</button>
+              <button id="lesson-play" class="ctl play" aria-label="Play">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path class="i-play" d="M8 5v14l11-7z" /><path class="i-pause" d="M7 5h4v14H7zM13 5h4v14h-4z" /></svg>
+              </button>
+              <button id="lesson-fwd5" class="ctl" aria-label="Forward 5 seconds">+5s</button>
+              <label class="ctl speed">
+                <select id="lesson-speed" aria-label="Speed">
+                  <option value="0.25">0.25×</option>
+                  <option value="0.5">0.5×</option>
+                  <option value="0.75">0.75×</option>
+                  <option value="1" selected>1×</option>
+                  <option value="1.25">1.25×</option>
+                </select>
+              </label>
+              <button id="lesson-step" class="ctl step" type="button" aria-pressed="false" aria-label="Note by note: stop 2 seconds on each note">1 by 1</button>
             </div>
           </div>
           <p id="video-error" class="form-error video-error" hidden></p>
@@ -114,31 +144,6 @@
 
           <div id="saying" class="saying" aria-live="off"><span id="saying-text" class="muted">Loading his words…</span></div>
 
-          <div class="seek-row">
-            <span id="lesson-time" class="time">0:00</span>
-            <div class="seek-wrap">
-              <input id="lesson-seek" type="range" min="0" max="1000" value="0" step="1" aria-label="Position in the lesson" />
-              <div id="chapter-ticks" class="chapter-ticks" aria-hidden="true"></div>
-            </div>
-            <span id="lesson-duration" class="time">0:00</span>
-          </div>
-          <div class="lesson-controls">
-            <button id="lesson-back5" class="ctl" aria-label="Back 5 seconds">−5s</button>
-            <button id="lesson-play" class="ctl play" aria-label="Play">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path class="i-play" d="M8 5v14l11-7z" /><path class="i-pause" d="M7 5h4v14H7zM13 5h4v14h-4z" /></svg>
-            </button>
-            <button id="lesson-fwd5" class="ctl" aria-label="Forward 5 seconds">+5s</button>
-            <label class="ctl speed">
-              <select id="lesson-speed" aria-label="Speed">
-                <option value="0.25">0.25×</option>
-                <option value="0.5">0.5×</option>
-                <option value="0.75">0.75×</option>
-                <option value="1" selected>1×</option>
-                <option value="1.25">1.25×</option>
-              </select>
-            </label>
-            <button id="lesson-step" class="ctl step" type="button" aria-pressed="false" aria-label="Note by note: stop 2 seconds on each note">1 by 1</button>
-          </div>
 
           <div class="seg lesson-tabs" role="tablist">
             <button type="button" role="tab" data-pane="transcript" aria-selected="true">What he says</button>

@@ -12,6 +12,8 @@ interface YTPlayer {
   getDuration(): number;
   getPlayerState(): number;
   setPlaybackRate(rate: number): void;
+  mute(): void;
+  unMute(): void;
   unloadModule?(name: string): void;
   destroy(): void;
 }
@@ -124,6 +126,11 @@ export class LessonPlayer {
 
   seek(sec: number): void {
     void this.with((p) => p.seekTo(Math.max(0, sec), true));
+  }
+
+  /** Silence the video (1 by 1 with Fretline's own pluck). */
+  setMuted(on: boolean): void {
+    void this.with((p) => (on ? p.mute() : p.unMute()));
   }
 
   setRate(rate: number): void {

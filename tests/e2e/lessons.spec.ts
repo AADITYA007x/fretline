@@ -225,7 +225,7 @@ test("account not set up yet: everything stays on the phone, menu says so", asyn
   await page.fill("#lesson-link", "ZeeuvgrDUeQ");
   await page.click('#add-lesson-form button[type="submit"]');
   await expect(page.locator("#lesson-title")).toHaveText("Neon intro, fingerstyle lesson");
-  await page.click("#menu-btn");
+  await page.click("#lesson-menu");
   await expect(page.locator("#sync-line")).toContainText("one-time setup", { timeout: 10_000 });
 });
 
@@ -302,6 +302,8 @@ test.describe("reading tab from the video", () => {
     await expect(page.locator("#lesson-step")).toHaveAttribute("aria-pressed", "true");
     // the app plays each note itself while the video waits (can be turned off)
     await expect(page.locator("#strip-pluck")).toHaveText("Pluck: on");
+    // only Fretline's sound: the video is muted while it's on
+    await expect.poll(() => page.evaluate(() => (window as any).__yt.muted)).toBe(true);
     await page.evaluate(() => {
       const w = window as any;
       w.__plucks = 0;

@@ -25,12 +25,15 @@ function renderAccount(): void {
 
 export function initMenu(): void {
   $("app-version").textContent = `Version ${__APP_VERSION__}`;
-  $("menu-btn").addEventListener("click", () => {
+  const open = () => {
     renderAccount();
     renderSync();
     void syncNow();
     openSheet("menu-sheet");
-  });
+  };
+  $("menu-btn").addEventListener("click", open);
+  // the same menu from a lesson's own header
+  $("lesson-menu").addEventListener("click", open);
   bus.on("syncstatus", renderSync);
   bus.on("authchange", renderAccount);
   $("sign-out-btn").addEventListener("click", async () => {
