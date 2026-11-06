@@ -356,7 +356,7 @@ test.describe("reading tab from the video", () => {
     const lines = page.locator("#nb-lines .nb-line");
     await expect(lines).toHaveCount(3);
     await expect(lines.first().locator(".nb-no")).toHaveText("1");
-    await expect(lines.first().locator(".nb-chords")).toHaveText("[Am]");
+    await expect(lines.first().locator(".nb-cells .nb-top").first()).toHaveText("[Am]");
     await expect(page.locator(".nb-cell .nb-top", { hasText: "3→5" })).toHaveCount(1);
     await expect(page.locator(".nb-cell .nb-top", { hasText: "2+0" })).toHaveCount(1);
     await lines.nth(1).locator(".nb-tick").click();

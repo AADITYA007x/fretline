@@ -39,7 +39,7 @@ export function renderNotebook(): void {
     .map(
       (l) => `<div class="nb-line${done.includes(l.n) ? " done" : ""}" data-line="${l.n}">
   <button type="button" class="nb-tick" aria-pressed="${done.includes(l.n)}" aria-label="Line ${l.n} done">${done.includes(l.n) ? "✓" : ""}</button>
-  <button type="button" class="nb-play" data-t="${l.t}" aria-label="Play line ${l.n} from ${clock(l.t)}"><span class="nb-no">${l.n}</span><span class="nb-time">${clock(l.t)}</span>${l.chords.length ? `<span class="nb-chords">[${l.chords.join(" · ")}]</span>` : ""}</button>
+  <button type="button" class="nb-play" data-t="${l.t}" aria-label="Play line ${l.n} from ${clock(l.t)}"><span class="nb-no">${l.n}</span><span class="nb-time">${clock(l.t)}</span></button>
   <div class="nb-cells">${l.cells.map(cellHtml).join("")}</div>
 </div>`,
     )

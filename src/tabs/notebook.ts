@@ -147,9 +147,10 @@ export function clock(sec: number): string {
 
 export function cellHtml(c: Cell): string {
   const cls = ["nb-cell", c.hammer ? "hammer" : "", c.unsure ? "unsure" : "", c.mark === "hold" ? "hold" : ""].filter(Boolean).join(" ");
-  const chord = c.chord ? `<span class="nb-chord">[${escapeHtml(c.chord)}]</span>` : "";
+  // The chord name sits in the line before its first note: "[D] 1/1 2/2 …"
+  const chord = c.chord ? `<span class="nb-cell nb-chordtag"><span class="nb-top">[${escapeHtml(c.chord)}]</span><span class="nb-bottom">&nbsp;</span></span>` : "";
   const mark = c.mark && c.mark !== "hold" ? `<span class="nb-mark">${escapeHtml(c.mark)}</span>` : "";
-  return `<span class="${cls}">${chord}${mark}<span class="nb-top">${escapeHtml(c.top)}</span><span class="nb-bottom">${escapeHtml(c.bottom) || "&nbsp;"}</span></span>`;
+  return `${chord}<span class="${cls}">${mark}<span class="nb-top">${escapeHtml(c.top)}</span><span class="nb-bottom">${escapeHtml(c.bottom) || "&nbsp;"}</span></span>`;
 }
 
 /** Plain text, to paste anywhere: "3. 0:41 [Am]  5/1  3→5/2  0+2/4+3 …" */
@@ -184,7 +185,8 @@ h1 { font-size: 18pt; margin: 0 0 2mm; }
 .nb-cell { display: inline-flex; flex-direction: column; align-items: center; min-width: 6mm; }
 .nb-top { font-size: 13pt; line-height: 1.1; }
 .nb-bottom { font-size: 9pt; color: #555; border-top: 1px solid #333; padding: 0 1mm; }
-.nb-chord { font-family: sans-serif; font-size: 8.5pt; font-weight: bold; color: #b0413e; }
+.nb-chordtag .nb-top { font-family: sans-serif; font-weight: bold; color: #b0413e; }
+.nb-chordtag .nb-bottom { border-top: 0; }
 .nb-mark { font-size: 7.5pt; color: #555; }
 .hammer { border-left: 3px double #333; border-right: 3px double #333; padding: 0 1mm; }
 .hold .nb-bottom { border-top: 0; }

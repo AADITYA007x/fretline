@@ -1444,10 +1444,6 @@ html.entry .app {
   font-family: var(--mono);
   font-size: 12px;
 }
-.nb-chords {
-  color: var(--accent);
-  font-weight: 600;
-}
 .nb-cells {
   grid-area: cells;
   display: flex;
@@ -1475,11 +1471,13 @@ html.entry .app {
   font-size: 12px;
   text-align: center;
 }
-.nb-chord {
+.nb-chordtag .nb-top {
   color: var(--accent);
   font-family: var(--ui);
-  font-size: 11px;
   font-weight: 700;
+}
+.nb-chordtag .nb-bottom {
+  border-top: 0;
 }
 .nb-mark {
   color: var(--bone-dim);
