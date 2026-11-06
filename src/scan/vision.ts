@@ -230,7 +230,7 @@ export function findPages(frames: FrameFeatures[], minSec = 1.2): Page[] {
       start,
       end,
       readAt: mid.t,
-      cursor: forwardOnly(fs.map((f) => ({ t: f.t, x: cursorX(f.u, f.v) })).filter((c): c is { t: number; x: number } => c.x !== null)),
+      cursor: steadyCursor(forwardOnly(fs.map((f) => ({ t: f.t, x: cursorX(f.u, f.v) })).filter((c): c is { t: number; x: number } => c.x !== null))),
       thumb: mid.m,
     });
   };
@@ -292,6 +292,24 @@ export function sweepStarts(fs: FrameFeatures[]): number[] {
     }
   }
   return out;
+}
+
+/**
+ * The cursor moves at a steady speed (the song's tempo): readings far off
+ * that line are something else — stuck at the left edge while the tab
+ * scrolls, or a jump to the far right as the page turns. Dropped.
+ */
+export function steadyCursor(c: { t: number; x: number }[]): { t: number; x: number }[] {
+  if (c.length < 4) return c;
+  const slopes: number[] = [];
+  for (let i = 0; i < c.length; i++)
+    for (let j = i + 1; j < c.length; j++) if (c[j].t - c[i].t > 0.1) slopes.push((c[j].x - c[i].x) / (c[j].t - c[i].t));
+  if (!slopes.length) return c;
+  slopes.sort((a, b) => a - b);
+  const m = slopes[slopes.length >> 1];
+  const icpt = c.map((p) => p.x - m * p.t).sort((a, b) => a - b)[c.length >> 1];
+  const kept = c.filter((p) => Math.abs(p.x - (icpt + m * p.t)) <= 0.07);
+  return kept.length >= 3 ? kept : c;
 }
 
 /**
@@ -497,18 +515,23 @@ export function timeColumns(cols: ScreenNote[][], page: Page, rect: Rect): { t: 
   const cur = page.cursor;
   const moving = cur.length >= 3 && cur[cur.length - 1].x - cur[0].x > 0.2;
   if (moving) {
+    const a = cur[0];
+    const z = cur[cur.length - 1];
+    const speed = (z.x - a.x) / Math.max(0.01, z.t - a.t);
     return xs.map((x) => {
       // first sample at or past the column, interpolated with the one before
       for (let i = 0; i < cur.length; i++) {
         if (cur[i].x >= x - 0.004) {
-          if (i === 0) return { t: cur[0].t, timed: true };
+          // before the cursor was first seen: back along its speed
+          if (i === 0) return x < a.x - 0.01 ? { t: Math.max(page.start, a.t - (a.x - x) / speed), timed: false } : { t: a.t, timed: true };
           const p = cur[i - 1];
           const q = cur[i];
           const k = q.x === p.x ? 0 : (x - p.x) / (q.x - p.x);
           return { t: p.t + Math.max(0, Math.min(1, k)) * (q.t - p.t), timed: true };
         }
       }
-      return { t: Math.max(page.start, page.end - 0.15), timed: false };
+      // after it was last seen: on along its speed (not all at the end)
+      return { t: Math.max(page.start, Math.min(page.end - 0.05, z.t + (x - z.x) / speed)), timed: false };
     });
   }
   const n = xs.length;
@@ -538,8 +561,13 @@ export function playedHere(cols: ScreenNote[][], pages: Page[], k: number, rect:
   const p = pages[k];
   const cur = p.cursor;
   if (!scrolling || cur.length < 3) return cols.map(() => true);
-  const first = cur[0].x;
-  const last = cur[cur.length - 1].x;
+  // where the cursor was when the view appeared / left (it isn't always
+  // seen right away): carried along its steady speed
+  const a = cur[0];
+  const z = cur[cur.length - 1];
+  const speed = (z.x - a.x) / Math.max(0.01, z.t - a.t);
+  const first = speed > 0 ? Math.min(a.x, a.x - speed * Math.max(0, a.t - p.start)) : a.x;
+  const last = speed > 0 ? Math.max(z.x, z.x + speed * Math.max(0, p.end - z.t)) : z.x;
   const prev = pages[k - 1];
   const next = pages[k + 1];
   const joinedBefore = !!prev && p.start - prev.end < 1;

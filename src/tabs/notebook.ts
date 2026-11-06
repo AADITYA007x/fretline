@@ -54,7 +54,8 @@ export function toCells(notes: TabNote[], chords: { t: number; name: string }[] 
   const groups: TabNote[][] = [];
   for (const n of sorted) {
     const g = groups[groups.length - 1];
-    if (g && n.t - g[0].t < TOGETHER) g.push(n);
+    // together = same moment, and never two notes on one string
+    if (g && n.t - g[0].t < TOGETHER && !g.some((o) => o.string === n.string)) g.push(n);
     else groups.push([n]);
   }
   const last = new Map<number, number>();

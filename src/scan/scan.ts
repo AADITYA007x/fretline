@@ -134,7 +134,7 @@ function b64(a: Uint8Array): string {
 }
 
 /** Bump when the reader gets better, so lessons read before can be read again. */
-export const SCAN_VERSION = 16;
+export const SCAN_VERSION = 17;
 
 export async function scanLesson(videoId: string, onStep: (s: Step) => void, maxHeight = 720): Promise<ScanResult> {
   if (running) throw new Error("Already reading another lesson's video.");
@@ -292,21 +292,30 @@ export async function scanLesson(videoId: string, onStep: (s: Step) => void, max
     const chordAt: { note: TabNote; name: string }[] = [];
     const out: ScanPage[] = [];
     const scrolling = isScrolling(pages);
+    let tail: { key: string; t: number }[] = [];
     pages.forEach((p, k) => {
       const r = read[sameAs[k]];
       if (!r) return;
       const cols = columns(r.notes, staff.spacing * scale);
       const times = timeColumns(cols, p, rect);
       const here = playedHere(cols, pages, k, rect, scrolling);
+      const prevTail = tail;
+      tail = [];
       cols.forEach((col, ci) => {
         if (!here[ci]) return;
+        // a scrolling tab can show the same column at the end of one view
+        // and the start of the next: keep it once
+        const key = col.map((n) => `${n.string}:${n.fret}`).sort().join(",");
+        if (prevTail.some((c) => c.key === key && times[ci].t - c.t < 0.6 && times[ci].t >= c.t - 0.1)) return;
+        tail.push({ key, t: times[ci].t });
+        const chordId = 100000 + notes.length;
         for (const n of col) {
           notes.push({
             id: `v${Math.round(times[ci].t * 10)}-${n.string}`,
             t: times[ci].t,
             string: n.string,
             fret: n.fret,
-            chord: col.length > 1 ? 100000 + Math.round(times[ci].t * 10) : undefined,
+            chord: col.length > 1 ? chordId : undefined,
             ...(n.tech ? { tech: n.tech } : {}),
             ...(n.strum ? { strum: n.strum } : {}),
             ...(n.unsure ? { unsure: true } : {}),

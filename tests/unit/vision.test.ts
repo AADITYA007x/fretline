@@ -184,9 +184,22 @@ describe("tabs that scroll instead of turning pages", () => {
     const keep = playedHere(cols, bPages, k, b.rect, true);
     const xs = cols.map((c) => (c[0].x - b.rect.x) / b.rect.w);
     xs.forEach((x, i) => {
-      if (x > 0.78) expect(keep[i]).toBe(false);
+      if (x > 0.84) expect(keep[i]).toBe(false);
       if (x > 0.15 && x < 0.7) expect(keep[i]).toBe(true);
     });
     expect(keep.some((k) => !k)).toBe(true);
+  });
+});
+
+import { steadyCursor as steady } from "../../src/scan/vision";
+
+describe("cursor readings off its steady speed", () => {
+  it("drops readings stuck at the edge or jumping ahead (Believer)", () => {
+    // Believer page at 0:31: stuck at 0 for a second while the tab scrolled
+    const stuck = [31.53, 31.78, 32.03, 32.28].map((t) => ({ t, x: 0 }));
+    const moving = [32.53, 32.78, 33.03, 33.28, 33.53, 34.03, 34.53, 35.03, 35.54, 36.04].map((t) => ({ t, x: 0.26 + (t - 32.53) * 0.137 }));
+    expect(steady([...stuck, ...moving])).toEqual(moving);
+    const jump = [...moving, { t: 36.29, x: 0.99 }];
+    expect(steady(jump)).toEqual(moving);
   });
 });

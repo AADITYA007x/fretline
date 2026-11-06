@@ -55,6 +55,11 @@ describe("notebook style", () => {
     expect(cells[0].top).toBe("0+7↘");
   });
 
+  it("never puts two notes of one string in one group", () => {
+    const cells = toCells([n(1, 6, 0), n(1.01, 2, 3), n(1.02, 6, 0), n(1.025, 2, 4)]);
+    expect(cells.map((c) => c.top)).toEqual(["0+3", "0+4"]);
+  });
+
   it("a new chord or held shape starts a new line", () => {
     const notes = [0, 1, 2, 3, 4].map((k) => n(1 + k * 0.3, 1, k));
     const strum = [n(3, 5, 3, { strum: "down" }), n(3, 4, 2), n(3, 2, 1)];
