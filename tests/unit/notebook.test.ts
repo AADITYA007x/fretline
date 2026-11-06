@@ -41,6 +41,16 @@ describe("notebook style", () => {
     expect(lines.flatMap((l) => l.cells).length).toBe(40);
   });
 
+  it("a new chord or held shape starts a new line", () => {
+    const notes = [0, 1, 2, 3, 4].map((k) => n(1 + k * 0.3, 1, k));
+    const strum = [n(3, 5, 3, { strum: "down" }), n(3, 4, 2), n(3, 2, 1)];
+    const after = [0, 1, 2].map((k) => n(3.3 + k * 0.3, 2, k));
+    const named = [n(4.5, 1, 5), n(4.8, 1, 7)];
+    const lines = notebookLines([...notes, ...strum, ...after, ...named], [{ t: 4.5, name: "G" }]);
+    expect(lines.map((l) => l.cells[0].top)).toEqual(["0", "[3 2 1 / 5 4 2]", "5"]);
+    expect(lines[2].chords).toEqual(["G"]);
+  });
+
   it("a long pause starts a new line early", () => {
     const cells = toCells([n(1, 1, 0), n(1.3, 1, 1), n(1.6, 1, 2), n(1.9, 1, 3), n(6, 1, 4), n(6.3, 1, 5)]);
     expect(toLines(cells).map((l) => l.cells.length)).toEqual([4, 2]);

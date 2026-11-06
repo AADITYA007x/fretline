@@ -81,12 +81,21 @@ export function toCells(notes: TabNote[], chords: { t: number; name: string }[] 
   return cells;
 }
 
-/** Cells into numbered lines of 8–10, breaking at the longest pause. */
+/** Cells into numbered lines of 8–10, breaking at the longest pause; each new chord starts a line. */
 export function toLines(cells: Cell[]): NoteLine[] {
   const lines: NoteLine[] = [];
   let i = 0;
   while (i < cells.length) {
     let end = Math.min(cells.length, i + MAX);
+    // a new chord (name or held shape) starts a new line
+    let chordBreak = false;
+    for (let k = i + 1; k < end; k++) {
+      if (cells[k].chord || cells[k].mark === "hold") {
+        end = k;
+        chordBreak = true;
+        break;
+      }
+    }
     // a long pause (a new part of the song) ends a line early
     for (let k = i + 3; k < end; k++) {
       if (cells[k].t - cells[k - 1].t > 2.5) {
@@ -94,7 +103,7 @@ export function toLines(cells: Cell[]): NoteLine[] {
         break;
       }
     }
-    if (end - i > MIN && end < cells.length) {
+    if (!chordBreak && end - i > MIN && end < cells.length) {
       let best = i + MIN;
       for (let k = i + MIN; k <= end; k++) if (cells[k].t - cells[k - 1].t > cells[best].t - cells[best - 1].t) best = k;
       end = best;
