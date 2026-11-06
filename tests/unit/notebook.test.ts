@@ -41,6 +41,15 @@ describe("notebook style", () => {
     expect(lines.flatMap((l) => l.cells).length).toBe(40);
   });
 
+  it("a slap (the video's x's) is your hand sign, with what's played with it", () => {
+    const cells = toCells([n(1, 1, 0, { tech: "mute" }), n(1, 2, 0, { tech: "mute" }), n(2, 1, 0, { tech: "mute" }), n(2, 2, 0, { tech: "mute" }), n(2, 3, 2), n(3, 6, 0, { tech: "mute" })]);
+    expect(cells.map((c) => [c.top, c.bottom])).toEqual([
+      ["✋", "21"],
+      ["✋+2", "21+3"],
+      ["✋", "6"],
+    ]);
+  });
+
   it("a new chord or held shape starts a new line", () => {
     const notes = [0, 1, 2, 3, 4].map((k) => n(1 + k * 0.3, 1, k));
     const strum = [n(3, 5, 3, { strum: "down" }), n(3, 4, 2), n(3, 2, 1)];

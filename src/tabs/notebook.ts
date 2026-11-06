@@ -1,6 +1,7 @@
 // "My notes": the lesson's tab written the way you write it in your notebook.
 // Fret on top, string number below; "+" = together; [frets / strings] = a
-// held shape; roll = a strummed chord; 5→7 = slide; pull; ‖ ‖ = hammer-on.
+// held shape; roll = a strummed chord; 5→7 = slide; pull; ‖ ‖ = hammer-on;
+// ✋ = slap.
 // 8–10 notes per line, each line numbered so you can tick off a few a day.
 import { escapeHtml, storage } from "../utils";
 import type { TabNote } from "./tab";
@@ -27,6 +28,8 @@ export interface NoteLine {
 }
 
 const TOGETHER = 0.03;
+/** Your sign for a slap (muted x's in the video). */
+const SLAP = "✋";
 const MIN = 8;
 const MAX = 10;
 
@@ -56,7 +59,7 @@ export function toCells(notes: TabNote[], chords: { t: number; name: string }[] 
     if (g.length === 1) {
       const n = g[0];
       const before = last.get(n.string);
-      let top = n.tech === "mute" ? "x" : n.tech === "harmonic" ? `<${n.fret}>` : n.tech === "bend" ? `${n.fret}b` : String(n.fret);
+      let top = n.tech === "mute" ? SLAP : n.tech === "harmonic" ? `<${n.fret}>` : n.tech === "bend" ? `${n.fret}b` : String(n.fret);
       let mark: string | undefined;
       if (n.tech === "slide") top = before !== undefined ? `${before}→${n.fret}` : `→${n.fret}`;
       if (n.tech === "slideOut") top = `${n.fret}↘`;
@@ -64,6 +67,18 @@ export function toCells(notes: TabNote[], chords: { t: number; name: string }[] 
       const f = fingerMark(n);
       if (f) top += `·${f}`;
       cells.push({ top, bottom: strings[0], mark, hammer: n.tech === "hammer", chord, unsure, t: n.t });
+    } else if (g.some((n) => n.tech === "mute") && (g.every((n) => n.tech === "mute") || !g.some((n) => n.strum))) {
+      // Slap (the video's x's): one hand for all the muted strings, then
+      // anything played with it: ✋+2 over 21+3.
+      const muted = g.filter((n) => n.tech === "mute");
+      const rest = g.filter((n) => n.tech !== "mute");
+      cells.push({
+        top: [SLAP, ...rest.map((n) => String(n.fret))].join("+"),
+        bottom: [muted.map((n) => n.string).join(""), ...rest.map((n) => String(n.string))].join("+"),
+        chord,
+        unsure,
+        t: g[0].t,
+      });
     } else if (g.some((n) => n.strum)) {
       // A strummed chord: the shape held (once), then "roll" over the strings.
       const fretted = g.filter((n) => n.tech !== "mute" && n.fret > 0);
@@ -73,7 +88,7 @@ export function toCells(notes: TabNote[], chords: { t: number; name: string }[] 
       const arrow = g.find((n) => n.strum)?.strum === "up" ? "↑" : "";
       cells.push({ top: `roll${arrow}`, bottom: strings.join(""), chord: shape ? undefined : chord, unsure, t: g[0].t });
     } else {
-      const tops = g.map((n) => (n.tech === "mute" ? "x" : String(n.fret)));
+      const tops = g.map((n) => (n.tech === "mute" ? SLAP : String(n.fret)));
       cells.push({ top: tops.join("+"), bottom: strings.join("+"), chord, unsure, t: g[0].t });
     }
     for (const n of g) if (n.tech !== "mute") last.set(n.string, n.fret);
@@ -162,7 +177,7 @@ export function toText(title: string, lines: NoteLine[]): string {
     });
     return `${l.n}. ${clock(l.t)}  ${cells.join("  ")}`;
   });
-  return [title, "fret/string · + together · [frets / strings] hold · roll strum · → slide · ||n|| hammer-on", "", ...body].join("\n");
+  return [title, "fret/string · + together · [frets / strings] hold · roll strum · → slide · ||n|| hammer-on · ✋ slap", "", ...body].join("\n");
 }
 
 /** A page to print or save as PDF, like a notebook page. */
@@ -192,6 +207,6 @@ h1 { font-size: 18pt; margin: 0 0 2mm; }
 .hold .nb-bottom { border-top: 0; }
 .unsure .nb-top { text-decoration: underline dotted #c80; }
 </style></head><body><h1>${escapeHtml(title)}</h1>
-<div class="key">fret on top, string below &middot; + together &middot; [frets / strings] hold this shape &middot; roll = strum &middot; 5→7 slide &middot; ‖ ‖ hammer-on &middot; dotted = check this one</div>
+<div class="key">fret on top, string below &middot; + together &middot; [frets / strings] hold this shape &middot; roll = strum &middot; 5→7 slide &middot; ‖ ‖ hammer-on &middot; ✋ slap &middot; dotted = check this one</div>
 ${rows}</body></html>`;
 }
