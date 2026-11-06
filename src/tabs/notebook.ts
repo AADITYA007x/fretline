@@ -39,6 +39,15 @@ function fingerMark(n: TabNote): string {
   return n.finger ? FINGER_MARK[n.finger] ?? "" : "";
 }
 
+/** A fret with its own sign: ✋ slap, <12> harmonic, 7b bend, 7↘ slide out. */
+function fretMark(n: TabNote): string {
+  if (n.tech === "mute") return SLAP;
+  if (n.tech === "harmonic") return `<${n.fret}>`;
+  if (n.tech === "bend") return `${n.fret}b`;
+  if (n.tech === "slideOut") return `${n.fret}↘`;
+  return String(n.fret);
+}
+
 /** One cell per moment: a single note, notes together, or a strummed chord. */
 export function toCells(notes: TabNote[], chords: { t: number; name: string }[] = []): Cell[] {
   const sorted = [...notes].sort((a, b) => a.t - b.t || a.string - b.string);
@@ -59,10 +68,9 @@ export function toCells(notes: TabNote[], chords: { t: number; name: string }[] 
     if (g.length === 1) {
       const n = g[0];
       const before = last.get(n.string);
-      let top = n.tech === "mute" ? SLAP : n.tech === "harmonic" ? `<${n.fret}>` : n.tech === "bend" ? `${n.fret}b` : String(n.fret);
+      let top = fretMark(n);
       let mark: string | undefined;
       if (n.tech === "slide") top = before !== undefined ? `${before}→${n.fret}` : `→${n.fret}`;
-      if (n.tech === "slideOut") top = `${n.fret}↘`;
       if (n.tech === "pull") mark = "pull";
       const f = fingerMark(n);
       if (f) top += `·${f}`;
@@ -73,7 +81,7 @@ export function toCells(notes: TabNote[], chords: { t: number; name: string }[] 
       const muted = g.filter((n) => n.tech === "mute");
       const rest = g.filter((n) => n.tech !== "mute");
       cells.push({
-        top: [SLAP, ...rest.map((n) => String(n.fret))].join("+"),
+        top: [SLAP, ...rest.map(fretMark)].join("+"),
         bottom: [muted.map((n) => n.string).join(""), ...rest.map((n) => String(n.string))].join("+"),
         chord,
         unsure,
@@ -88,7 +96,7 @@ export function toCells(notes: TabNote[], chords: { t: number; name: string }[] 
       const arrow = g.find((n) => n.strum)?.strum === "up" ? "↑" : "";
       cells.push({ top: `roll${arrow}`, bottom: strings.join(""), chord: shape ? undefined : chord, unsure, t: g[0].t });
     } else {
-      const tops = g.map((n) => (n.tech === "mute" ? SLAP : String(n.fret)));
+      const tops = g.map((n) => (n.tech === "slide" ? `→${n.fret}` : fretMark(n)));
       cells.push({ top: tops.join("+"), bottom: strings.join("+"), chord, unsure, t: g[0].t });
     }
     for (const n of g) if (n.tech !== "mute") last.set(n.string, n.fret);

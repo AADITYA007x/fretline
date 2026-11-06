@@ -300,11 +300,23 @@ test.describe("reading tab from the video", () => {
 
     await page.click("#lesson-step");
     await expect(page.locator("#lesson-step")).toHaveAttribute("aria-pressed", "true");
+    // the app plays each note itself while the video waits (can be turned off)
+    await expect(page.locator("#strip-pluck")).toHaveText("Pluck: on");
+    await page.evaluate(() => {
+      const w = window as any;
+      w.__plucks = 0;
+      const orig = AudioBufferSourceNode.prototype.start;
+      AudioBufferSourceNode.prototype.start = function (...a: any[]) {
+        w.__plucks++;
+        return orig.apply(this, a as any);
+      };
+    });
     await page.evaluate(() => (window as any).__yt.seekTo(3));
     await page.click("#lesson-play");
     // It pauses on the next note with a card over the video saying what it
     // is (YouTube's own pause buttons stay hidden under it)…
     await expect(page.locator("#video-hold")).toBeVisible({ timeout: 5000 });
+    await expect.poll(() => page.evaluate(() => (window as any).__plucks)).toBeGreaterThan(0);
     await expect(page.locator("#video-hold-note")).toContainText(/string/);
     await expect(page.locator("#lesson-play")).not.toHaveClass(/is-playing/);
     const held = await page.evaluate(() => (window as any).__yt.t);

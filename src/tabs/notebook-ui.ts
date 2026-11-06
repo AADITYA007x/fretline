@@ -9,6 +9,9 @@ import { currentTab, onTabChange } from "./strip";
 let lines: NoteLine[] = [];
 let shownFor: string | null = null;
 let lit = -1;
+/** The line you tapped stays lit while the video runs up to it. */
+let pinned = -1;
+let pinnedAt = 0;
 let jumpTo: (sec: number) => void = () => {};
 let titleOf: () => string = () => "Fretline tab";
 
@@ -53,6 +56,10 @@ export function highlightNotebook(t: number): void {
   let i = -1;
   for (let k = 0; k < lines.length; k++) if (lines[k].t <= t + 0.05) i = k;
   if (i >= 0 && t > lines[i].end + 3 && (lines[i + 1]?.t ?? Infinity) > t + 3) i = -1;
+  if (pinned >= 0) {
+    if (i >= pinned || Date.now() - pinnedAt >= 4000) pinned = -1;
+    else i = pinned;
+  }
   if (i === lit) return;
   lit = i;
   document.querySelectorAll<HTMLElement>("#nb-lines .nb-line").forEach((el, k) => el.classList.toggle("now", k === i));
@@ -119,7 +126,11 @@ export function initNotebook(jump: (sec: number) => void, title: () => string): 
       return;
     }
     const line = lines[n - 1];
-    if (line) jumpTo(Math.max(0, line.t - 0.4));
+    if (!line) return;
+    pinned = n - 1;
+    pinnedAt = Date.now();
+    lit = -2;
+    jumpTo(Math.max(0, line.t - 0.4));
   });
   $("nb-print").addEventListener("click", () => void printIt());
   $("nb-text").addEventListener("click", () => void shareText());

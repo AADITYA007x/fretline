@@ -38,6 +38,8 @@ export interface ScreenTab {
   v?: number;
   /** Chord names written above the tab, at the note under each. */
   chords?: { t: number; name: string }[];
+  /** Capo fret, from the sound (for playing the notes at the right pitch). */
+  capo?: number;
 }
 
 /**

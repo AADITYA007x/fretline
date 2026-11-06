@@ -41,6 +41,8 @@ export interface ScanResult {
   pages: ScanPage[];
   /** Chord names written above the tab, at the note under each. */
   chords?: { t: number; name: string }[];
+  /** The capo the sound says he plays with (when it's clear). */
+  capo?: number;
   /** Why there's nothing, when there's nothing. */
   none?: string;
 }
@@ -132,7 +134,7 @@ function b64(a: Uint8Array): string {
 }
 
 /** Bump when the reader gets better, so lessons read before can be read again. */
-export const SCAN_VERSION = 15;
+export const SCAN_VERSION = 16;
 
 export async function scanLesson(videoId: string, onStep: (s: Step) => void, maxHeight = 720): Promise<ScanResult> {
   if (running) throw new Error("Already reading another lesson's video.");
@@ -217,7 +219,7 @@ export async function scanLesson(videoId: string, onStep: (s: Step) => void, max
     // digits are found here and read by the phone laid out in a neat row.
     const SPOTS = [0.2, 0.35, 0.5, 0.65, 0.8];
     const sp = staff.spacing * scale;
-    const above = Math.min(rect.y, Math.round(sp * 3));
+    const above = Math.min(rect.y, Math.round(sp * 4.2));
     const readRect = { x: rect.x, y: rect.y - above, w: rect.w, h: rect.h + above };
     const tol = staff.spacing * scale * 0.6;
     const read: { notes: ScreenNote[]; image: string; chords: { x: number; name: string }[] }[] = [];
@@ -322,12 +324,14 @@ export async function scanLesson(videoId: string, onStep: (s: Step) => void, max
       out.push({ start: p.start, end: p.end, image: r.image || undefined, notes: cols.length });
     });
     // Line the notes up with the plucks in the video's sound.
-    (report as Record<string, unknown>).sync = await syncWithSound(videoId, notes, out, onStep, subs);
+    const sync = await syncWithSound(videoId, notes, out, onStep, subs);
+    (report as Record<string, unknown>).sync = sync;
+    const capo = "capo" in sync && !sync.skipped && sync.clarity >= 1.5 ? sync.capo : undefined;
     // (after the lining up, so chord names move with their notes)
     const chords = chordAt.map((c) => ({ t: c.note.t, name: c.name })).filter((c, i, all) => i === 0 || c.name !== all[i - 1].name || c.t - all[i - 1].t > 1);
     (report as Record<string, unknown>).chords = chords;
     await tabScan.saveReport({ videoId, json: JSON.stringify(report) }).catch(() => {});
-    return { notes, pages: out, chords };
+    return { notes, pages: out, chords, capo };
   } finally {
     for (const s of subs) await s.remove().catch(() => {});
     await tabScan.deleteVideo({ videoId }).catch(() => {});

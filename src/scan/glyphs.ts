@@ -536,6 +536,14 @@ export function findAll(gray: Uint8Array, w: number, h: number, lines: number[])
     const x0 = Math.min(...next.map((t) => t.x0));
     for (const t of next) if (t.x0 - x0 <= sp * 0.5) t.strum = ar.dir;
   }
+  // A slide-out is one note fading away. Strokes after a strummed chord or
+  // across a whole chord (3+ notes) are arrows/rolls, not slide-outs.
+  for (const t of tokens) {
+    if (t.tech !== "slideOut") continue;
+    const cx = (t.x0 + t.x1) / 2;
+    const stack = tokens.filter((o) => Math.abs((o.x0 + o.x1) / 2 - cx) <= sp * 0.5).length;
+    if (t.strum || stack >= 3) delete t.tech;
+  }
   return { tokens, slides, arcs, arrows };
 }
 
@@ -799,7 +807,7 @@ export const CHORD_NAME = /^[A-G](#|b)?(m|maj|min|dim|aug|sus|add)?\d{0,2}(sus\d
 export function chordBand(area: Area, lines: number[]): { gray: Uint8Array; w: number; h: number; y0: number } | null {
   const local = lines.map((y) => y - area.y);
   const sp = (local[5] - local[0]) / 5;
-  const y0 = Math.max(0, Math.round(local[0] - sp * 3));
+  const y0 = Math.max(0, Math.round(local[0] - sp * 4));
   const y1 = Math.round(local[0] - sp * 0.45);
   if (y1 - y0 < sp * 0.6) return null;
   const w = area.w * 2;
@@ -817,9 +825,12 @@ export function chordsFromChars(chars: ReadChar[], area: Area): { x: number; nam
   const sorted = [...chars].sort((a, b) => a.x - b.x);
   const words: ReadChar[][] = [];
   for (const c of sorted) {
-    const w = words[words.length - 1];
-    const last = w?.[w.length - 1];
-    if (last && c.x - (last.x + last.w) < Math.max(last.h, c.h) * 0.45 && Math.abs(c.y - last.y) < Math.max(last.h, c.h)) w.push(c);
+    // the word on the same row (a bar number below can sit between letters)
+    const w = words.find((w) => {
+      const last = w[w.length - 1];
+      return c.x - (last.x + last.w) < Math.max(last.h, c.h) && c.y < last.y + last.h && last.y < c.y + c.h;
+    });
+    if (w) w.push(c);
     else words.push([c]);
   }
   return words

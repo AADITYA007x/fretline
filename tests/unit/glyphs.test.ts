@@ -192,3 +192,19 @@ describe("our own digit reader on real lesson tab", () => {
     expect(got.filter((r) => r.string > 1).every((r) => r.text === "5")).toBe(true);
   });
 });
+
+import { chordsFromChars } from "../../src/scan/glyphs";
+
+describe("chord names above the tab", () => {
+  // Boxes the reader gave on Believer's band (enlarged 2×): "Am", and
+  // "Fmaj7" with the bar number "19" sitting under its letters.
+  const box = (c: string, l: number, b: number, r: number, t: number) => ({ c, x: l, y: 124 - t, w: r - l, h: t - b });
+  const chars: ReadChar[] = [
+    box("A", 556, 70, 584, 100), box("m", 586, 70, 618, 92),
+    box("F", 1730, 70, 1752, 100), box("m", 1754, 70, 1786, 92), box("a", 1776, 60, 1797, 102), box("j", 1788, 60, 1816, 102), box("7", 1822, 70, 1840, 100),
+    box("1", 1716, 0, 1718, 16), box("9", 1730, 6, 1738, 16), box("1", 1092, 0, 1094, 16),
+  ];
+  it("joins letters into names, even with a bar number under them", () => {
+    expect(chordsFromChars(chars, { gray: new Uint8Array(0), w: 0, h: 0, x: 0, y: 0 }).map((c) => c.name)).toEqual(["Am", "Fmaj7"]);
+  });
+});

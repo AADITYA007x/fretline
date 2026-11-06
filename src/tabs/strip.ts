@@ -2,7 +2,8 @@
 // he's on lit up, his words for it pinned underneath. Tap a note to fix it;
 // tap the strip to pause or play. Fixes are saved (and synced).
 import { bus } from "../state";
-import { $, escapeHtml } from "../utils";
+import { $, escapeHtml, storage } from "../utils";
+import { playColumn, stopPluck } from "./pluck";
 import { closeSheet, openSheet } from "../ui/sheets";
 import { getFixes, saveFixes } from "./fixes";
 import { pictureSrc, shareReading } from "../scan/ui";
@@ -268,7 +269,10 @@ export function render(t: number): void {
 // plays it until the next one: look, then hear.
 
 const HOLD_MS = 2000;
+const PLUCK_KEY = "fretline:step-pluck";
 let stepOn = false;
+/** 1 by 1 plays the note itself (Fretline's pluck) while the video waits. */
+let pluckOn = storage.get<boolean>(PLUCK_KEY, true) !== false;
 let stepAt = -1;
 let stepPrevT = -1;
 let holdTimer: ReturnType<typeof setTimeout> | undefined;
@@ -301,11 +305,23 @@ export function setStepMode(on: boolean): void {
   holdTimer = undefined;
   stepAt = controls ? controls.time() - 0.01 : -1;
   $("tab-strip").classList.toggle("stepping", on);
-  if (!on) $("strip-tip").classList.remove("step-tip");
+  renderPluckButton();
+  if (!on) {
+    $("strip-tip").classList.remove("step-tip");
+    stopPluck();
+  }
 }
 
 /** You pressed play (or pause) yourself: drop any hold in progress. */
+function renderPluckButton(): void {
+  const b = $("strip-pluck");
+  b.hidden = !stepOn;
+  b.setAttribute("aria-pressed", String(pluckOn));
+  b.textContent = pluckOn ? "Pluck: on" : "Pluck: off";
+}
+
 export function stepCancelHold(): void {
+  if (holdTimer) stopPluck();
   if (holdTimer) controls?.hold(null, 0);
   clearTimeout(holdTimer);
   holdTimer = undefined;
@@ -336,11 +352,13 @@ export function stepTick(t: number): void {
   stepAt = next.t;
   const text = describeColumn(next);
   controls.hold(text, HOLD_MS);
+  if (pluckOn) void playColumn(next.notes, fixes.screen?.capo ?? 0);
   const tip = $("strip-tip");
   tip.textContent = text;
   tip.classList.add("step-tip");
   holdTimer = setTimeout(() => {
     holdTimer = undefined;
+    stopPluck();
     // Now play it (up to the next note).
     resuming = true;
     controls?.hold(null, 0);
@@ -476,6 +494,14 @@ export function reloadFixes(id: string): void {
 }
 
 export function initStrip(): void {
+  $("strip-pluck").addEventListener("click", (e) => {
+    e.stopPropagation();
+    pluckOn = !pluckOn;
+    storage.set(PLUCK_KEY, pluckOn);
+    if (!pluckOn) stopPluck();
+    renderPluckButton();
+    bus.emit("toast", pluckOn ? "1 by 1 plays each note itself while the video waits" : "1 by 1: only the video's sound");
+  });
   // Scrolling the tape yourself keeps it there (with a way back).
   $("strip-staff").addEventListener(
     "scroll",

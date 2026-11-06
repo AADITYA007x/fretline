@@ -44,7 +44,7 @@ async function run(videoId: string, maxHeight = 720): Promise<void> {
   $("scan-row").hidden = false;
   try {
     const result = await scanLesson(videoId, showStep, maxHeight);
-    saveScreenTab(videoId, { at: Date.now(), notes: result.notes, pages: result.pages, none: result.none, chords: result.chords, v: SCAN_VERSION });
+    saveScreenTab(videoId, { at: Date.now(), notes: result.notes, pages: result.pages, none: result.none, chords: result.chords, capo: result.capo, v: SCAN_VERSION });
     bus.emit("toast", result.none ?? `Read ${result.notes.length} notes from the video's tab`);
     onDone(videoId);
   } catch (err) {
