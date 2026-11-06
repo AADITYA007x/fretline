@@ -24,6 +24,7 @@ import { fromSpoken } from "../tabs/tab";
 import { clearTab, followAgain, initStrip, reloadFixes, render as renderStrip, renderPicture, setStepMode, setTab, stepCancelHold, stepMode, stepTick, type StripControls } from "../tabs/strip";
 import { initScanUi, renderScanButton } from "../scan/ui";
 import { highlightNotebook, initNotebook, renderNotebook } from "../tabs/notebook-ui";
+import { closePractice, initPractice, openPractice } from "../practice/ui";
 import { tabScan } from "../scan/native";
 
 
@@ -497,6 +498,7 @@ function closeLesson(fromCode = true): void {
   setStepMode(false);
   $("video-hold").hidden = true;
   $("lesson-step").setAttribute("aria-pressed", "false");
+  closePractice();
   setScreen(false);
   if (fromCode) removeStep("lesson");
   renderList();
@@ -506,6 +508,30 @@ export function initLessons(): void {
   renderList();
   initStrip();
   initNotebook(jump, () => current?.title || "Fretline tab");
+  initPractice({
+    time: () => player?.time() ?? 0,
+    play: () => player?.play(),
+    pause: () => player?.pause(),
+    seek: (sec) => player?.seek(sec),
+    setRate: (r) => player?.setRate(r),
+    mute: (on) => player?.setMuted(on),
+    done: () => player?.setRate(playRate()),
+  });
+  const practice = (at: { line?: number; t?: number }) => {
+    if (!current) return;
+    // practice runs its own note by note
+    if (stepMode()) {
+      setStepMode(false);
+      $("lesson-step").setAttribute("aria-pressed", "false");
+    }
+    pausePlayer();
+    openPractice(current.title, at);
+  };
+  $("strip-practice").addEventListener("click", (e) => {
+    e.stopPropagation();
+    practice({ t: player?.time() ?? 0 });
+  });
+  $("nb-practice").addEventListener("click", () => practice({}));
   initScanUi(
     () => current?.videoId ?? null,
     (id) => {

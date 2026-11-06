@@ -14,6 +14,10 @@ After that, the app shows a banner when a new version is out.
 
 ## What's in it
 
+**v0.8 – Practice**
+
+- v0.8.0: **Practice** (on the tab strip, or in My notes): the app takes over from the video. Pick lines of My notes and climb a ladder: 1 by 1 → 0.25× with Fretline's own pluck (clear, one note at a time; video paused), then the video's own sound at 0.5×, 0.75×, 1× (YouTube only plays at its own speeds; with Sound: Pluck the speed can rise in small steps). Choose where to start (1 by 1 / 0.25× / 0.5×), the goal (0.5× / 0.75× / 1×), the pace (Slow: 4 rounds a step, Normal: 2, Quick: 1) and the sound (Auto / Pluck / Video); Up and Back move a step yourself. A fretboard shows where the fingers go now (with suggested finger numbers: one finger per fret from where the hand is, barre = 1st finger) and, dashed, the next note. A click on the beat: tempo found from the notes' timing (Love Story: ~110 BPM), − / + and Tap to set it, louder on the first beat of a bar; it follows the speed (`src/practice`)
+
 **v0.7 – My notes (tab in your notebook style)**
 
 - v0.7.4: the lesson title is no longer cut off (the cover for the status bar only shows once the video is stuck at the top); wavy roll lines by a chord are read as a roll (played low to high, like a strum down; all 8 found on Believer's pictures were real); My notes shows where a slide starts in notes played together (`1→5+1→5`). Read again

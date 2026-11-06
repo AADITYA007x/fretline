@@ -132,6 +132,11 @@ export function onTabChange(fn: () => void): void {
   onChange = fn;
 }
 
+/** The capo the reading found (0 if none). */
+export function currentCapo(): number {
+  return fixes.screen?.capo ?? 0;
+}
+
 /** The lesson's notes as they are now (with your fixes), and chord names. */
 export function currentTab(): { videoId: string | null; notes: TabNote[]; chords: { t: number; name: string }[] } {
   return { videoId, notes: phrases.flatMap((p) => p.columns.flatMap((c) => c.notes)), chords: fixes.screen?.chords ?? [] };
@@ -140,6 +145,7 @@ export function currentTab(): { videoId: string | null; notes: TabNote[]; chords
 function rebuild(): void {
   base = combine(speech, fixes.screen);
   phrases = toPhrases(applyFixes(base, fixes), 7, tabBreaks(fixes.screen?.pages ?? []));
+  $("strip-practice").hidden = !phrases.length;
   onChange?.();
   pictureFor = -1;
   shownPhrase = -2;
@@ -163,6 +169,7 @@ export function clearTab(): void {
   phrases = [];
   shownPhrase = -2;
   $("strip-staff").innerHTML = "";
+  $("strip-practice").hidden = true;
   onChange?.();
 }
 

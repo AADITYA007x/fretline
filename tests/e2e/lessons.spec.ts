@@ -386,6 +386,54 @@ test.describe("reading tab from the video", () => {
     await expect(page.locator("#nb-lines .nb-line.done .nb-no")).toHaveText("2");
   });
 
+  test("Practice: the app takes over; climbs 1 by 1 → slow pluck → the video faster", async ({ page }, info) => {
+    await fakeSupabase(page);
+    await page.addInitScript(() => {
+      const n = (t: number, string: number, fret: number, extra: object = {}) => ({ id: `v${Math.round(t * 100)}-${string}`, t, string, fret, source: "screen", ...extra });
+      const notes = [] as object[];
+      for (let i = 0; i < 24; i++) notes.push(n(2 + i * 0.25, 1 + (i % 3), [3, 2, 0, 1][i % 4]));
+      notes.push(n(9, 5, 3, { strum: "down" }), n(9, 4, 2), n(9, 3, 0), n(9, 2, 1));
+      const screen = { at: 1, v: 99, notes, pages: [{ start: 1.5, end: 12, notes: notes.length }], chords: [{ t: 9, name: "C" }], capo: 0 };
+      localStorage.setItem("fretline:fixes:2Lq784V-KPw", JSON.stringify({ edits: {}, added: [], updatedAt: 1, screen }));
+      const w = window as any;
+      w.__plucks = 0;
+      const orig = AudioBufferSourceNode.prototype.start;
+      AudioBufferSourceNode.prototype.start = function (...a: any[]) {
+        w.__plucks++;
+        return orig.apply(this, a as any);
+      };
+    });
+    await page.goto("/");
+    await page.click('.tab[data-view="lessons"]');
+    await page.fill("#lesson-link", "2Lq784V-KPw");
+    await page.click('#add-lesson-form button[type="submit"]');
+    await page.waitForFunction(() => (window as any).__yt);
+    await expect(page.locator("#strip-practice")).toBeVisible();
+    await page.click("#strip-practice");
+    await expect(page.locator("#practice")).toBeVisible();
+    await expect(page.locator(".pr-rung")).toHaveText(["1 by 1", "0.25×", "0.5×", "0.75×", "1×"]);
+    await expect(page.locator(".pr-rung.now")).toHaveText("1 by 1");
+    // start: Fretline plays the notes, the video stays paused and muted
+    await page.click("#pr-play");
+    await expect(page.locator("#pr-now")).toContainText(/e|B|G/, { timeout: 4000 });
+    await expect.poll(() => page.evaluate(() => (window as any).__plucks)).toBeGreaterThan(5);
+    expect(await page.evaluate(() => (window as any).__yt.muted)).toBe(true);
+    await expect(page.locator(".fretboard .fb-dot.now, .fretboard .fb-open.now").first()).toBeAttached();
+    await shot(page, "33-practice", info.project.name);
+    // up to the video's sound at 0.5×: the video plays from the part, unmuted
+    await page.click("#pr-up");
+    await page.click("#pr-up");
+    await expect(page.locator(".pr-rung.now")).toHaveText("0.5×");
+    await expect.poll(() => page.evaluate(() => (window as any).__yt.rate)).toBe(0.5);
+    expect(await page.evaluate(() => (window as any).__yt.muted)).toBe(false);
+    // stop at 0.75×
+    await page.click('.pr-seg[data-opt="goal"] button[data-v="0.75"]');
+    await expect(page.locator(".pr-rung")).toHaveText(["1 by 1", "0.25×", "0.5×", "0.75×"]);
+    // back closes it
+    await page.click("#pr-close");
+    await expect(page.locator("#practice")).toBeHidden();
+  });
+
   test("the tape stays where you scroll it, until Back to now", async ({ page }) => {
     await fakeSupabase(page);
     await fakeTabScan(page, gray, ocr);

@@ -124,6 +124,7 @@
             <div class="strip-head">
               <span id="strip-label" class="strip-label"></span>
               <div class="strip-actions">
+                <button id="strip-practice" class="row-action" type="button" hidden>Practice</button>
                 <button id="strip-pluck" class="row-action" type="button" aria-pressed="true" hidden>Pluck: on</button>
                 <button id="strip-picture" class="row-action" type="button" hidden>Picture</button>
                 <button id="scan-btn" class="row-action" type="button">Read video tab</button>
@@ -164,6 +165,7 @@
             <div class="pane-head">
               <span id="nb-progress" class="muted"></span>
               <span class="nb-actions">
+                <button id="nb-practice" class="row-action" type="button">Practice</button>
                 <button id="nb-text" class="row-action" type="button">Copy as text</button>
                 <button id="nb-print" class="row-action" type="button">Print / PDF</button>
               </span>
@@ -171,6 +173,51 @@
             <p class="nb-key muted">Fret on top, string below · + together · [frets / strings] hold · roll = strum · 5→7 slide · ‖ ‖ hammer-on · ✋ slap. Tap a line to play it, tick it when you've got it.</p>
             <div id="nb-lines" class="nb-lines"></div>
           </div>
+        </section>
+
+        <section id="practice" class="practice" hidden aria-label="Practice">
+          <div class="pr-top">
+            <button id="pr-close" class="icon-btn" aria-label="Close practice">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
+            </button>
+            <div class="pr-head">
+              <b>Practice</b>
+              <span id="pr-title" class="muted"></span>
+            </div>
+          </div>
+          <div class="pr-part">
+            <label>Line <select id="pr-from" aria-label="From line"></select></label>
+            <label>to <select id="pr-to" aria-label="To line"></select></label>
+          </div>
+          <div id="pr-ladder" class="pr-ladder" aria-label="Steps"></div>
+          <p id="pr-stage" class="pr-stage"></p>
+          <div class="pr-note">
+            <p id="pr-now" class="pr-now"></p>
+            <p id="pr-next" class="pr-next"></p>
+          </div>
+          <div id="pr-board" class="pr-board"></div>
+          <div id="pr-line" class="pr-line nb-cells"></div>
+          <div class="pr-controls">
+            <button id="pr-back" class="ctl" type="button" aria-label="Step back">◀ Back</button>
+            <button id="pr-play" class="ctl play" type="button" aria-label="Start">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path class="i-play" d="M8 5v14l11-7z" /><path class="i-pause" d="M7 5h4v14H7zM13 5h4v14h-4z" /></svg>
+            </button>
+            <button id="pr-up" class="ctl" type="button" aria-label="Step up">Up ▶</button>
+          </div>
+          <div class="pr-opts">
+            <div class="pr-opt"><span>Start</span><div class="seg pr-seg" role="group" data-opt="start"><button type="button" data-v="step">1 by 1</button><button type="button" data-v="0.25">0.25×</button><button type="button" data-v="0.5">0.5×</button></div></div>
+            <div class="pr-opt"><span>Goal</span><div class="seg pr-seg" role="group" data-opt="goal"><button type="button" data-v="0.5">0.5×</button><button type="button" data-v="0.75">0.75×</button><button type="button" data-v="1">1×</button></div></div>
+            <div class="pr-opt"><span>Pace</span><div class="seg pr-seg" role="group" data-opt="pace"><button type="button" data-v="slow">Slow</button><button type="button" data-v="normal">Normal</button><button type="button" data-v="quick">Quick</button></div></div>
+            <div class="pr-opt"><span>Sound</span><div class="seg pr-seg" role="group" data-opt="sound"><button type="button" data-v="auto">Auto</button><button type="button" data-v="pluck">Pluck</button><button type="button" data-v="video">Video</button></div></div>
+          </div>
+          <div class="pr-metro">
+            <button id="pr-click" class="row-action" type="button" aria-pressed="false">Click: off</button>
+            <button id="pr-bpm-down" class="ctl small" type="button" aria-label="Slower beat">−</button>
+            <span id="pr-bpm" class="pr-bpm">— BPM</span>
+            <button id="pr-bpm-up" class="ctl small" type="button" aria-label="Faster beat">+</button>
+            <button id="pr-tap" class="ctl small" type="button">Tap</button>
+          </div>
+          <p class="pr-hint muted">Below 0.5× you hear Fretline's own pluck (clear, one note at a time); from 0.5× the video's sound. Fingers are a suggestion: the video's tab doesn't say which.</p>
         </section>
 
         <section id="view-tuner" class="view">

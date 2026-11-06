@@ -30,7 +30,7 @@ export function rollTimes(notes: Pick<TabNote, "string" | "strum">[], gap = 0.03
 
 let ctx: AudioContext | null = null;
 const cache = new Map<string, AudioBuffer>();
-let playing: { src: AudioBufferSourceNode; gain: GainNode }[] = [];
+let playing: { src: AudioScheduledSourceNode; gain: GainNode }[] = [];
 
 function context(): AudioContext {
   if (!ctx) ctx = new AudioContext();
@@ -84,15 +84,17 @@ export function stopPluck(): void {
   playing = [];
 }
 
-/** Play one column of the tab (a note, notes together, or a strum). */
-export async function playColumn(notes: TabNote[], capo = 0): Promise<void> {
-  if (!notes.length) return;
-  stopPluck();
+/** The sound engine, woken up (a tap must have happened first). */
+export async function audio(): Promise<AudioContext> {
   const ac = context();
   if (ac.state !== "running") await ac.resume().catch(() => {});
+  return ac;
+}
+
+/** Play a column at an exact moment on the audio clock (`when`, seconds). */
+export function scheduleColumn(ac: AudioContext, notes: TabNote[], capo: number, when: number): void {
   const at = rollTimes(notes);
-  const start = ac.currentTime + 0.02;
-  const level = 0.85 / Math.sqrt(notes.length);
+  const level = 0.85 / Math.sqrt(Math.max(1, notes.length));
   notes.forEach((n, i) => {
     const src = ac.createBufferSource();
     src.buffer = n.tech === "mute" ? slapBuffer(ac) : pluckBuffer(ac, noteFreq(n, capo));
@@ -101,6 +103,31 @@ export async function playColumn(notes: TabNote[], capo = 0): Promise<void> {
     src.connect(gain).connect(ac.destination);
     src.onended = () => (playing = playing.filter((p) => p.src !== src));
     playing.push({ src, gain });
-    src.start(start + at[i]);
+    src.start(Math.max(ac.currentTime, when + at[i]));
   });
+}
+
+/** A metronome click at `when` (louder and higher on the first beat). */
+export function scheduleClick(ac: AudioContext, when: number, accent: boolean, volume = 0.6): void {
+  const osc = ac.createOscillator();
+  osc.frequency.value = accent ? 1760 : 1175;
+  const gain = ac.createGain();
+  const t = Math.max(ac.currentTime, when);
+  gain.gain.setValueAtTime(0, t);
+  gain.gain.linearRampToValueAtTime(volume * (accent ? 1 : 0.65), t + 0.002);
+  gain.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+  osc.connect(gain).connect(ac.destination);
+  const src = osc;
+  osc.onended = () => (playing = playing.filter((p) => p.src !== src));
+  playing.push({ src, gain });
+  osc.start(t);
+  osc.stop(t + 0.06);
+}
+
+/** Play one column of the tab (a note, notes together, or a strum). */
+export async function playColumn(notes: TabNote[], capo = 0): Promise<void> {
+  if (!notes.length) return;
+  stopPluck();
+  const ac = await audio();
+  scheduleColumn(ac, notes, capo, ac.currentTime + 0.02);
 }
