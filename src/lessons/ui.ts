@@ -23,6 +23,7 @@ import { notesFromSpeech } from "../tabs/speech";
 import { fromSpoken } from "../tabs/tab";
 import { clearTab, followAgain, initStrip, reloadFixes, render as renderStrip, renderPicture, setStepMode, setTab, stepCancelHold, stepMode, stepTick, type StripControls } from "../tabs/strip";
 import { initScanUi, renderScanButton } from "../scan/ui";
+import { highlightNotebook, initNotebook, renderNotebook } from "../tabs/notebook-ui";
 import { tabScan } from "../scan/native";
 
 
@@ -32,6 +33,13 @@ let lines: Line[] = [];
 let shownLine = -2;
 let shownWord = -2;
 let speed = 1;
+/** In 1 by 1, notes play at most this fast (at full speed they are too close together to stop between). */
+const STEP_MAX_RATE = 0.5;
+
+/** The speed the video actually plays at (1 by 1 slows it). */
+function playRate(): number {
+  return stepMode() ? Math.min(speed, STEP_MAX_RATE) : speed;
+}
 let playing = false;
 let seeking = false;
 let lastSaved = 0;
@@ -49,7 +57,7 @@ const stripControls: StripControls = {
     const i = lineAt(lines, sec);
     return i >= 0 ? lines[i].text : "";
   },
-  rate: () => speed,
+  rate: () => playRate(),
   hold: (text, ms, resume = true) => {
     const card = $("video-hold");
     if (text !== null) {
@@ -64,6 +72,7 @@ const stripControls: StripControls = {
     } else if (resume) {
       // Keep the card up until the video is really playing again (YouTube
       // shows its title and a spinner while it starts), then let it go.
+      player?.setRate(playRate());
       player?.play();
       holdHideAt = Date.now() + 2500;
     } else hideHoldCard();
@@ -388,6 +397,7 @@ function tick(): void {
   renderStrip(t);
   renderPicture(t);
   highlightChapter(t);
+  highlightNotebook(t);
   if (playing && Date.now() - lastSaved > 5000) savePosition(t);
 }
 
@@ -494,6 +504,7 @@ function closeLesson(fromCode = true): void {
 export function initLessons(): void {
   renderList();
   initStrip();
+  initNotebook(jump, () => current?.title || "Fretline tab");
   initScanUi(
     () => current?.videoId ?? null,
     (id) => {
@@ -523,14 +534,20 @@ export function initLessons(): void {
   $("lesson-step").addEventListener("click", () => {
     const on = !stepMode();
     setStepMode(on);
+    player?.setRate(playRate());
     $("lesson-step").setAttribute("aria-pressed", String(on));
-    bus.emit("toast", on ? "Note by note: it waits 2 seconds on each note, then plays it" : "Note by note off");
+    bus.emit(
+      "toast",
+      on
+        ? `Note by note: it waits 2 seconds on each note, then plays it${speed > STEP_MAX_RATE ? ` (at ${STEP_MAX_RATE}× so each note can be heard on its own)` : ""}`
+        : "Note by note off",
+    );
   });
   $("lesson-back5").addEventListener("click", () => player?.seek(player.time() - 5));
   $("lesson-fwd5").addEventListener("click", () => player?.seek(player.time() + 5));
   $<HTMLSelectElement>("lesson-speed").addEventListener("change", (e) => {
     speed = Number((e.target as HTMLSelectElement).value) || 1;
-    player?.setRate(speed);
+    player?.setRate(playRate());
   });
   const seek = $<HTMLInputElement>("lesson-seek");
   seek.addEventListener("input", () => {
@@ -550,6 +567,8 @@ export function initLessons(): void {
       document.querySelectorAll<HTMLElement>(".lesson-tabs button").forEach((x) => x.setAttribute("aria-selected", String(x === b)));
       $("pane-transcript").hidden = pane !== "transcript";
       $("pane-chapters").hidden = pane !== "chapters";
+      $("pane-notebook").hidden = pane !== "notebook";
+      if (pane === "notebook") renderNotebook();
     }),
   );
   const tr = $("transcript");

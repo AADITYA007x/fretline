@@ -1377,6 +1377,128 @@ html.entry .app {
   color: var(--bone);
 }
 
+/* My notes: the tab in your notebook style. */
+.nb-actions {
+  display: flex;
+  gap: 6px;
+}
+.nb-key {
+  margin: 2px 6px 8px;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.nb-lines {
+  display: grid;
+  max-height: 52vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.nb-line {
+  display: grid;
+  grid-template-columns: 34px 1fr;
+  grid-template-areas: "tick head" "tick cells";
+  column-gap: 8px;
+  padding: 8px 6px 10px;
+  border-bottom: 1px solid var(--bone-faint);
+  border-radius: 10px;
+}
+.nb-line.now {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.nb-line.done .nb-cells {
+  opacity: 0.55;
+}
+.nb-tick {
+  grid-area: tick;
+  align-self: center;
+  width: 30px;
+  height: 30px;
+  border: 1.5px solid var(--bone-dim);
+  border-radius: 8px;
+  background: none;
+  color: var(--pearl);
+  font-size: 17px;
+  font-weight: 700;
+}
+.nb-line.done .nb-tick {
+  border-color: var(--pearl);
+}
+.nb-play {
+  grid-area: head;
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--bone-dim);
+  font-size: 13px;
+  text-align: left;
+}
+.nb-no {
+  color: var(--accent-bright);
+  font-weight: 700;
+  font-size: 15px;
+}
+.nb-time {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.nb-chords {
+  color: var(--accent);
+  font-weight: 600;
+}
+.nb-cells {
+  grid-area: cells;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 6px 10px;
+  margin-top: 6px;
+}
+.nb-cell {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 18px;
+  font-family: var(--mono);
+}
+.nb-top {
+  color: var(--bone);
+  font-size: 17px;
+  line-height: 1.15;
+}
+.nb-bottom {
+  min-width: 100%;
+  border-top: 1px solid var(--bone-dim);
+  color: var(--bone-dim);
+  font-size: 12px;
+  text-align: center;
+}
+.nb-chord {
+  color: var(--accent);
+  font-family: var(--ui);
+  font-size: 11px;
+  font-weight: 700;
+}
+.nb-mark {
+  color: var(--bone-dim);
+  font-family: var(--ui);
+  font-size: 10px;
+}
+.nb-cell.hammer {
+  padding: 0 4px;
+  border-left: 3px double var(--bone-dim);
+  border-right: 3px double var(--bone-dim);
+}
+.nb-cell.hold .nb-bottom {
+  border-top: 0;
+}
+.nb-cell.unsure .nb-top {
+  text-decoration: underline dotted var(--off);
+  text-underline-offset: 3px;
+}
+
 .pane-empty {
   margin: 8px 6px;
 }
@@ -1430,7 +1552,7 @@ html.entry .app {
 .strip-staff {
   display: flex;
   overflow-x: auto;
-  padding: 0 8px;
+  padding: 18px 8px 0;
   overscroll-behavior-x: contain;
 }
 
@@ -1474,12 +1596,38 @@ html.entry .app {
   pointer-events: none;
 }
 
+/* a slide-out: the note slides away as it fades */
+.tnote.slide-out::before {
+  content: "";
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  width: 14px;
+  height: 2px;
+  margin-left: 1px;
+  background: var(--accent);
+  transform-origin: left center;
+  transform: rotate(24deg);
+  pointer-events: none;
+}
+
 .tnote.slide-up::before {
   transform: rotate(-24deg);
 }
 
 .tnote.slide-down::before {
   transform: rotate(24deg);
+}
+
+/* a chord name from the video's tab, over the note it starts on */
+.staff-col .chordname {
+  position: absolute;
+  left: 2px;
+  top: -16px;
+  font: 600 12px/1 var(--ui);
+  color: var(--accent-bright);
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 /* a strum arrow from the video's tab, drawn by its chord */

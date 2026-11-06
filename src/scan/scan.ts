@@ -3,7 +3,7 @@
 // read each tab page → timed notes → delete the video.
 import type { TabNote } from "../tabs/tab";
 import { tabScan, type ScanProgress } from "./native";
-import { notesFromArea } from "./glyphs";
+import { chordBand, chordsFromChars, notesFromArea } from "./glyphs";
 import type { Model } from "./digits";
 import { analyzeSound, syncNotes, type SyncReport } from "./onsets";
 import {
@@ -23,6 +23,7 @@ import {
   staffRect,
   timeColumns,
   type FrameFeatures,
+  type OcrChar,
   type Page,
   type ScreenNote,
 } from "./vision";
@@ -38,6 +39,8 @@ export interface ScanPage {
 export interface ScanResult {
   notes: TabNote[];
   pages: ScanPage[];
+  /** Chord names written above the tab, at the note under each. */
+  chords?: { t: number; name: string }[];
   /** Why there's nothing, when there's nothing. */
   none?: string;
 }
@@ -106,6 +109,21 @@ function nearestFrame(frames: FrameFeatures[], t: number): FrameFeatures | undef
   return b && Math.abs(b.t - t) < Math.abs(a.t - t) ? b : a;
 }
 
+/** Chord names most readings of a page agree on (same name, about the same place). */
+function mergeChords(readings: { x: number; name: string }[][], tol: number): { x: number; name: string }[] {
+  const used = readings.filter((r) => r.length);
+  if (!used.length) return [];
+  const need = used.length >= 3 ? Math.ceil(used.length / 2) : used.length;
+  const groups: { x: number; name: string; n: number }[] = [];
+  for (const r of used)
+    for (const c of r) {
+      const g = groups.find((q) => q.name === c.name && Math.abs(q.x - c.x) <= tol);
+      if (g) g.n++;
+      else groups.push({ ...c, n: 1 });
+    }
+  return groups.filter((g) => g.n >= need).map(({ x, name }) => ({ x, name }));
+}
+
 /** Bytes to base64 (for sending a picture to the phone side). */
 function b64(a: Uint8Array): string {
   let s = "";
@@ -114,7 +132,7 @@ function b64(a: Uint8Array): string {
 }
 
 /** Bump when the reader gets better, so lessons read before can be read again. */
-export const SCAN_VERSION = 14;
+export const SCAN_VERSION = 15;
 
 export async function scanLesson(videoId: string, onStep: (s: Step) => void, maxHeight = 720): Promise<ScanResult> {
   if (running) throw new Error("Already reading another lesson's video.");
@@ -198,28 +216,37 @@ export async function scanLesson(videoId: string, onStep: (s: Step) => void, max
     // Each page is read at five moments and the readings compared. The
     // digits are found here and read by the phone laid out in a neat row.
     const SPOTS = [0.2, 0.35, 0.5, 0.65, 0.8];
+    const sp = staff.spacing * scale;
+    const above = Math.min(rect.y, Math.round(sp * 3));
+    const readRect = { x: rect.x, y: rect.y - above, w: rect.w, h: rect.h + above };
     const tol = staff.spacing * scale * 0.6;
-    const read: { notes: ScreenNote[]; image: string }[] = [];
+    const read: { notes: ScreenNote[]; image: string; chords: { x: number; name: string }[] }[] = [];
     for (let i = 0; i < unique.length; i += 4) {
       const batch = unique.slice(i, i + 4);
       onStep({ phase: "read", fraction: i / unique.length, detail: `${i} of ${unique.length} tab pages` });
       const times = batch.flatMap((p) => SPOTS.map((f) => p.start + f * (p.end - p.start)));
       // Exact frames (decoded one by one); the quick grabber only if that fails.
-      const { results } = await tabScan.areasExact({ videoId, rect, times }).catch(() => tabScan.areas({ videoId, rect, times }));
+      // (taller than the tab, to take in the chord names written above it)
+      const { results } = await tabScan.areasExact({ videoId, rect: readRect, times }).catch(() => tabScan.areas({ videoId, rect: readRect, times }));
       const found = new Map<number, ScreenNote[]>();
+      const foundChords = new Map<number, { x: number; name: string }[]>();
       for (const r of results) {
         const seen: unknown[] = [];
         // Is this really the page shown at that moment? (compare with what
         // the look through the video saw then)
+        // The tab itself, and the band above it.
+        const full = bytes(r.gray);
+        const top = rect.y - r.y;
+        const tabH = Math.min(rect.h, r.h - top);
+        const gray = top >= 0 && tabH > 0 ? full.slice(top * r.w, (top + tabH) * r.w) : full;
         const at = nearestFrame(frames, r.t);
-        if (at && at.m.length === THUMB_W * THUMB_H && r.w === rect.w && r.h === rect.h) {
+        if (at && at.m.length === THUMB_W * THUMB_H && r.w === rect.w && tabH === rect.h) {
           const cur = cursorX(at.u, at.v);
-          if (changedCells(thumbOf(bytes(r.gray), r.w, r.h), at.m, [cur, cur]) >= 3) {
+          if (changedCells(thumbOf(gray, r.w, tabH), at.m, [cur, cur]) >= 3) {
             report.readings.push({ t: r.t, image: r.image?.split("/").pop(), chars: [], notes: [], wrongFrame: true });
             continue;
           }
         }
-        const gray = bytes(r.gray);
         // A frame that came back black (it happens near the start) is no reading.
         let sum = 0;
         for (let i = 0; i < gray.length; i += 7) sum += gray[i];
@@ -228,7 +255,7 @@ export async function scanLesson(videoId: string, onStep: (s: Step) => void, max
           continue;
         }
         const notes = await notesFromArea(
-          { gray, w: r.w, h: r.h, x: r.x, y: r.y },
+          { gray, w: r.w, h: tabH, x: r.x, y: rect.y },
           lines,
           async (lay) => {
             const { chars } = await tabScan.read({ gray: b64(lay.gray), w: lay.w, h: lay.h });
@@ -238,6 +265,13 @@ export async function scanLesson(videoId: string, onStep: (s: Step) => void, max
           model,
         );
         found.set(r.t, notes);
+        // chord names written above the tab
+        const area = { gray: full, w: r.w, h: r.h, x: r.x, y: r.y };
+        const band = chordBand(area, lines);
+        if (band) {
+          const { chars } = await tabScan.read({ gray: b64(band.gray), w: band.w, h: band.h }).catch(() => ({ chars: [] as OcrChar[] }));
+          foundChords.set(r.t, chordsFromChars(chars, area));
+        }
         report.readings.push({ t: r.t, image: r.image?.split("/").pop(), chars: seen, notes });
       }
       batch.forEach((_, k) => {
@@ -246,13 +280,14 @@ export async function scanLesson(videoId: string, onStep: (s: Step) => void, max
           mine.map((r) => (r ? (found.get(r.t) ?? []) : [])),
           tol,
         );
-        read.push({ notes, image: (mine[2] ?? mine.find(Boolean))?.image ?? "" });
+        read.push({ notes, image: (mine[2] ?? mine.find(Boolean))?.image ?? "", chords: mergeChords(mine.map((r) => (r ? (foundChords.get(r.t) ?? []) : [])), tol * 2) });
         report.merged.push(notes);
       });
     }
 
     // Notes, timed by the cursor on each showing of each page.
     const notes: TabNote[] = [];
+    const chordAt: { note: TabNote; name: string }[] = [];
     const out: ScanPage[] = [];
     const scrolling = isScrolling(pages);
     pages.forEach((p, k) => {
@@ -277,12 +312,22 @@ export async function scanLesson(videoId: string, onStep: (s: Step) => void, max
           });
         }
       });
+      // each chord name goes with the first note under or after it
+      for (const ch of r.chords) {
+        const ci = cols.findIndex((col, i) => here[i] && col[0].x >= ch.x - staff.spacing * scale * 0.6);
+        if (ci < 0) continue;
+        const first = notes.find((n) => n.t === times[ci].t && n.string === cols[ci][0].string);
+        if (first) chordAt.push({ note: first, name: ch.name });
+      }
       out.push({ start: p.start, end: p.end, image: r.image || undefined, notes: cols.length });
     });
     // Line the notes up with the plucks in the video's sound.
     (report as Record<string, unknown>).sync = await syncWithSound(videoId, notes, out, onStep, subs);
+    // (after the lining up, so chord names move with their notes)
+    const chords = chordAt.map((c) => ({ t: c.note.t, name: c.name })).filter((c, i, all) => i === 0 || c.name !== all[i - 1].name || c.t - all[i - 1].t > 1);
+    (report as Record<string, unknown>).chords = chords;
     await tabScan.saveReport({ videoId, json: JSON.stringify(report) }).catch(() => {});
-    return { notes, pages: out };
+    return { notes, pages: out, chords };
   } finally {
     for (const s of subs) await s.remove().catch(() => {});
     await tabScan.deleteVideo({ videoId }).catch(() => {});

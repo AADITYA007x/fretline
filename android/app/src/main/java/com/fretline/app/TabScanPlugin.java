@@ -879,6 +879,76 @@ public class TabScanPlugin extends Plugin {
         });
     }
 
+    /** Kept alive while Android's print screen is open (it reads the page from it). */
+    private android.webkit.WebView printView;
+
+    /** Android's print screen for a page of HTML: print it or "Save as PDF". */
+    @PluginMethod
+    public void printHtml(PluginCall call) {
+        String html = call.getString("html", "");
+        String name = call.getString("name", "Fretline tab");
+        getActivity().runOnUiThread(() -> {
+            try {
+                android.webkit.WebView view = new android.webkit.WebView(getActivity());
+                final boolean[] started = { false };
+                view.setWebViewClient(new android.webkit.WebViewClient() {
+                    @Override
+                    public void onPageFinished(android.webkit.WebView v, String url) {
+                        if (started[0]) return;
+                        started[0] = true;
+                        android.print.PrintManager pm = (android.print.PrintManager) getActivity().getSystemService(android.content.Context.PRINT_SERVICE);
+                        android.print.PrintAttributes attrs = new android.print.PrintAttributes.Builder()
+                            .setMediaSize(android.print.PrintAttributes.MediaSize.ISO_A4)
+                            .build();
+                        pm.print(name, v.createPrintDocumentAdapter(name), attrs);
+                    }
+                });
+                printView = view;
+                view.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null);
+                call.resolve();
+            } catch (Exception e) {
+                Log.w(TAG, "printHtml", e);
+                call.reject(describe(e));
+            }
+        });
+    }
+
+    /** Android's share sheet with the tab as text (and as a .txt file). */
+    @PluginMethod
+    public void shareText(PluginCall call) {
+        String text = call.getString("text", "");
+        String name = call.getString("name", "Fretline tab");
+        worker.execute(() -> {
+            try {
+                File outDir = new File(getContext().getCacheDir(), "share");
+                //noinspection ResultOfMethodCallIgnored
+                outDir.mkdirs();
+                String safe = name.replaceAll("[^A-Za-z0-9 _-]", "").trim();
+                if (safe.isEmpty()) safe = "Fretline tab";
+                if (safe.length() > 60) safe = safe.substring(0, 60).trim();
+                File file = new File(outDir, safe + ".txt");
+                try (OutputStream os = new FileOutputStream(file)) {
+                    os.write(text.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                }
+                android.net.Uri uri = androidx.core.content.FileProvider.getUriForFile(
+                    getContext(), getContext().getPackageName() + ".fileprovider", file);
+                android.content.Intent send = new android.content.Intent(android.content.Intent.ACTION_SEND);
+                send.setType("text/plain");
+                send.putExtra(android.content.Intent.EXTRA_TEXT, text);
+                send.putExtra(android.content.Intent.EXTRA_SUBJECT, name);
+                send.putExtra(android.content.Intent.EXTRA_STREAM, uri);
+                send.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                android.content.Intent chooser = android.content.Intent.createChooser(send, "Share the tab");
+                chooser.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                getActivity().runOnUiThread(() -> getContext().startActivity(chooser));
+                call.resolve();
+            } catch (Exception e) {
+                Log.w(TAG, "shareText", e);
+                call.reject(describe(e));
+            }
+        });
+    }
+
     private void progress(String videoId, String phase, long done, long total) {
         JSObject p = new JSObject();
         p.put("videoId", videoId);

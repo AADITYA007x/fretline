@@ -11,7 +11,7 @@
 import type { Word } from "../lessons/captions";
 
 export type Finger = "thumb" | "index" | "middle" | "ring" | "pinky";
-export type Technique = "hammer" | "pull" | "slide" | "bend" | "harmonic" | "mute";
+export type Technique = "hammer" | "pull" | "slide" | "bend" | "harmonic" | "mute" | "slideOut";
 
 export interface SpokenNote {
   /** When he said it (seconds into the video). */

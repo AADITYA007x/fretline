@@ -43,6 +43,10 @@ export interface TabScanPlugin {
   audio(o: { videoId: string; rate: number }): Promise<{ rate: number; samples: number }>;
   saveReport(o: { videoId: string; json: string }): Promise<void>;
   shareReport(o: { videoId: string }): Promise<void>;
+  /** Android's print screen (print or "Save as PDF") for a page of HTML. */
+  printHtml(o: { html: string; name: string }): Promise<void>;
+  /** Android's share sheet with some text (and a .txt file of it). */
+  shareText(o: { text: string; name: string }): Promise<void>;
   addListener(event: "progress", fn: (p: ScanProgress) => void): Promise<PluginListenerHandle>;
   addListener(event: "audio", fn: (b: { videoId: string; start: number; pcm: string }) => void): Promise<PluginListenerHandle>;
   addListener(event: "features", fn: (b: { videoId: string; frames: RawFeatures[] }) => void): Promise<PluginListenerHandle>;

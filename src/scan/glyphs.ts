@@ -23,7 +23,7 @@ export interface Token {
   /** Each mark's box (left to right), for reading them one by one. */
   parts: { x0: number; y0: number; x1: number; y1: number }[];
   /** From the marks around it: a slide into it, a hammer-on/pull-off arc. */
-  tech?: "slide" | "hammer" | "pull";
+  tech?: "slide" | "hammer" | "pull" | "slideOut";
   /** A strum arrow drawn next to its chord (as drawn: ↑ or ↓). */
   strum?: "up" | "down";
 }
@@ -515,8 +515,10 @@ export function findAll(gray: Uint8Array, w: number, h: number, lines: number[])
   // A slide mark between two frets on a string: the second is slid into.
   for (const sl of slides) {
     const right = tokens.find((t) => t.string === sl.string && t.x0 >= sl.x1 - 2 && t.x0 - sl.x1 <= sp * 1.2);
-    const left = tokens.some((t) => t.string === sl.string && t.x1 <= sl.x0 + 2 && sl.x0 - t.x1 <= sp * 1.2);
+    const left = tokens.filter((t) => t.string === sl.string && t.x1 <= sl.x0 + 2 && sl.x0 - t.x1 <= sp * 1.2).pop();
     if (right && left) right.tech = "slide";
+    // nothing after it: the note slides away as it fades (a slide-out)
+    else if (left && !right && !left.tech) left.tech = "slideOut";
   }
   // An arc over two frets: from the first to the second (hammer-on or
   // pull-off, decided once the frets are read).
@@ -659,7 +661,7 @@ export interface AreaNote {
   fret: number;
   /** x in video pixels. */
   x: number;
-  tech?: "slide" | "hammer" | "pull" | "harmonic" | "mute";
+  tech?: "slide" | "hammer" | "pull" | "harmonic" | "mute" | "slideOut";
   strum?: "up" | "down";
   /** The readers didn't agree: worth a look. */
   unsure?: boolean;
@@ -783,4 +785,44 @@ export async function notesFromArea(
     else n.tech = n.fret > before.fret ? "hammer" : "pull";
   }
   return out.sort((p, q) => p.x - q.x || p.string - q.string);
+}
+
+// --- Chord names written above the tab ("G", "Am", "Fmaj7") -----------------------------
+
+/** A chord name as tab writes it. */
+export const CHORD_NAME = /^[A-G](#|b)?(m|maj|min|dim|aug|sus|add)?\d{0,2}(sus\d|add\d|b5|#5)?(\/[A-G](#|b)?)?$/;
+
+/**
+ * The band just above the top string (where chord names go), copied out,
+ * enlarged 2× so small names read well. Null if there's no room.
+ */
+export function chordBand(area: Area, lines: number[]): { gray: Uint8Array; w: number; h: number; y0: number } | null {
+  const local = lines.map((y) => y - area.y);
+  const sp = (local[5] - local[0]) / 5;
+  const y0 = Math.max(0, Math.round(local[0] - sp * 3));
+  const y1 = Math.round(local[0] - sp * 0.45);
+  if (y1 - y0 < sp * 0.6) return null;
+  const w = area.w * 2;
+  const h = (y1 - y0) * 2;
+  const gray = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) gray[y * w + x] = area.gray[(y0 + (y >> 1)) * area.w + (x >> 1)];
+  return { gray, w, h, y0 };
+}
+
+/**
+ * Chord names from what the reader saw in the band: characters joined into
+ * words by their gaps, kept when a word looks like a chord. x in video pixels.
+ */
+export function chordsFromChars(chars: ReadChar[], area: Area): { x: number; name: string }[] {
+  const sorted = [...chars].sort((a, b) => a.x - b.x);
+  const words: ReadChar[][] = [];
+  for (const c of sorted) {
+    const w = words[words.length - 1];
+    const last = w?.[w.length - 1];
+    if (last && c.x - (last.x + last.w) < Math.max(last.h, c.h) * 0.45 && Math.abs(c.y - last.y) < Math.max(last.h, c.h)) w.push(c);
+    else words.push([c]);
+  }
+  return words
+    .map((w) => ({ name: w.map((c) => c.c).join(""), x: area.x + w[0].x / 2 }))
+    .filter((w) => CHORD_NAME.test(w.name));
 }

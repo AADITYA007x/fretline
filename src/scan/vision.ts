@@ -376,7 +376,7 @@ export interface ScreenNote {
   fret: number;
   /** x of the note's centre, in video pixels. */
   x: number;
-  tech?: "slide" | "hammer" | "pull" | "harmonic" | "mute";
+  tech?: "slide" | "hammer" | "pull" | "harmonic" | "mute" | "slideOut";
   strum?: "up" | "down";
   /** the readers didn't agree on it */
   unsure?: boolean;

@@ -103,7 +103,7 @@ test("a video without captions, and one that can't be embedded", async ({ page }
   await page.click('#add-lesson-form button[type="submit"]');
   await expect(page.locator("#saying-text")).toHaveText("This video has no captions, so his words can't be shown.");
   await page.click('.lesson-tabs [data-pane="chapters"]');
-  await expect(page.locator(".pane-empty")).toHaveText("This video has no chapters.");
+  await expect(page.locator("#chapter-list .pane-empty")).toHaveText("This video has no chapters.");
   await page.click("#lesson-back");
 
   await page.fill("#lesson-link", "https://youtu.be/c0JsZN9w_ME");
@@ -335,6 +335,41 @@ test.describe("reading tab from the video", () => {
     await expect(page.locator(".tnote.slide-down")).toHaveText("1");
     await expect(page.locator(".tnote", { hasText: "x" })).toHaveCount(1);
     await shot(page, "31-slides", info.project.name);
+  });
+
+  test("My notes: the tab in notebook style, numbered lines to tick off and tap to play", async ({ page }, info) => {
+    await fakeSupabase(page);
+    await page.addInitScript(() => {
+      const n = (t: number, string: number, fret: number, extra: object = {}) => ({ id: `v${Math.round(t * 100)}-${string}`, t, string, fret, source: "screen", ...extra });
+      const notes = [] as object[];
+      for (let i = 0; i < 18; i++) notes.push(n(2 + i * 0.4, 1 + (i % 3), i % 4));
+      notes.push(n(10, 4, 2), n(10, 3, 0), n(10.5, 2, 3), n(10.8, 2, 5, { tech: "slide" }));
+      const screen = { at: 1, v: 99, notes, pages: [{ start: 1.5, end: 12, notes: notes.length }], chords: [{ t: 2, name: "Am" }] };
+      localStorage.setItem("fretline:fixes:2Lq784V-KPw", JSON.stringify({ edits: {}, added: [], updatedAt: 1, screen }));
+    });
+    await page.goto("/");
+    await page.click('.tab[data-view="lessons"]');
+    await page.fill("#lesson-link", "2Lq784V-KPw");
+    await page.click('#add-lesson-form button[type="submit"]');
+    await page.waitForFunction(() => (window as any).__yt);
+    await page.click('.lesson-tabs button[data-pane="notebook"]');
+    const lines = page.locator("#nb-lines .nb-line");
+    await expect(lines).toHaveCount(3);
+    await expect(lines.first().locator(".nb-no")).toHaveText("1");
+    await expect(lines.first().locator(".nb-chords")).toHaveText("[Am]");
+    await expect(page.locator(".nb-cell .nb-top", { hasText: "3→5" })).toHaveCount(1);
+    await expect(page.locator(".nb-cell .nb-top", { hasText: "2+0" })).toHaveCount(1);
+    await lines.nth(1).locator(".nb-tick").click();
+    await expect(page.locator("#nb-progress")).toHaveText("1 of 3 lines done");
+    await lines.nth(2).locator(".nb-play").click();
+    await expect.poll(() => page.evaluate(() => (window as any).__yt.t)).toBeGreaterThan(5);
+    await shot(page, "32-my-notes", info.project.name);
+    await page.reload();
+    await page.click('.tab[data-view="lessons"]');
+    await page.click(".lesson-open");
+    await page.click('.lesson-tabs button[data-pane="notebook"]');
+    await expect(page.locator("#nb-progress")).toHaveText("1 of 3 lines done");
+    await expect(page.locator("#nb-lines .nb-line.done .nb-no")).toHaveText("2");
   });
 
   test("the tape stays where you scroll it, until Back to now", async ({ page }) => {

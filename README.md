@@ -14,6 +14,13 @@ After that, the app shows a banner when a new version is out.
 
 ## What's in it
 
+**v0.7 – My notes (tab in your notebook style)**
+
+- v0.7.0: **My notes** tab under the video: the lesson's tab written like Aaditya's notebook (fret on top, string below; `+` together; `[frets / strings]` held shape then `roll` for a strummed chord; `5→7` slides; `pull`; `‖ ‖` hammer-on; `7↘` slide out), 8–10 notes per numbered line with its time and chord names in brackets. Tap a line to play it; tick lines off as you learn them (saved per lesson). **Print / PDF** opens Android's print screen (print or Save as PDF, A4, notebook look); **Copy as text** shares it as plain text (`src/tabs/notebook.ts`)
+- Chord names written above the video's tab are read too (ML Kit on a band above the staff) and shown over the strip
+- Slide-outs (a slash after a note with nothing after it) drawn as a falling line
+- 1 by 1 plays at most 0.5× (at 1× it skipped notes); tried a per-note pitch check that would flag doubtful notes, but it flagged ~1 in 5 good notes, so it's left out
+
 **v0.6 – Our own digit reader**
 
 - v0.6.2: when the sound doesn't line up clearly for the whole song (Believer: lots of muted hits), each page finds its own slide and capo and they vote

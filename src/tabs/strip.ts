@@ -40,8 +40,8 @@ export interface StripControls {
 
 const FINGER_MARK: Record<Finger, string> = { thumb: "T", index: "i", middle: "m", ring: "r", pinky: "p" };
 const FINGERS: (Finger | null)[] = [null, "index", "middle", "ring", "pinky", "thumb"];
-const TECHS: (Technique | null)[] = [null, "hammer", "pull", "slide", "bend", "harmonic", "mute"];
-const TECH_NAME: Record<Technique, string> = { hammer: "Hammer-on", pull: "Pull-off", slide: "Slide", bend: "Bend", harmonic: "Harmonic", mute: "Muted (x)" };
+const TECHS: (Technique | null)[] = [null, "hammer", "pull", "slide", "slideOut", "bend", "harmonic", "mute"];
+const TECH_NAME: Record<Technique, string> = { hammer: "Hammer-on", pull: "Pull-off", slide: "Slide", bend: "Bend", harmonic: "Harmonic", mute: "Muted (x)", slideOut: "Slide out" };
 
 let videoId: string | null = null;
 let speech: TabNote[] = [];
@@ -122,9 +122,22 @@ function glide(p: Phrase, t: number, upcoming: boolean): void {
   placedAt = Math.round(host.scrollLeft);
 }
 
+let onChange: (() => void) | null = null;
+
+/** Called whenever the lesson's notes change (read, fixed, loaded). */
+export function onTabChange(fn: () => void): void {
+  onChange = fn;
+}
+
+/** The lesson's notes as they are now (with your fixes), and chord names. */
+export function currentTab(): { videoId: string | null; notes: TabNote[]; chords: { t: number; name: string }[] } {
+  return { videoId, notes: phrases.flatMap((p) => p.columns.flatMap((c) => c.notes)), chords: fixes.screen?.chords ?? [] };
+}
+
 function rebuild(): void {
   base = combine(speech, fixes.screen);
   phrases = toPhrases(applyFixes(base, fixes), 7, tabBreaks(fixes.screen?.pages ?? []));
+  onChange?.();
   pictureFor = -1;
   shownPhrase = -2;
   if (controls) render(controls.time());
@@ -147,6 +160,7 @@ export function clearTab(): void {
   phrases = [];
   shownPhrase = -2;
   $("strip-staff").innerHTML = "";
+  onChange?.();
 }
 
 /** The last note on string s before column ci of the phrase. */
@@ -170,8 +184,8 @@ function renderPhrase(p: Phrase): void {
           const finger = n.finger ? `<sup>${FINGER_MARK[n.finger]}</sup>` : "";
           // A slide is drawn as a line from the note before it on the same
           // string, going up or down like the frets do.
-          let slide = "";
-          let label = fretLabel(n);
+          let slide = n.tech === "slideOut" ? " slide-out" : "";
+          let label = n.tech === "slideOut" ? String(n.fret) : fretLabel(n);
           if (n.tech === "slide") {
             const before = prevOnString(p, ci, s);
             if (before) {
@@ -184,9 +198,11 @@ function renderPhrase(p: Phrase): void {
         })
         .join("");
       const pageStart = ci > 0 && pageLabel(c.t) !== pageLabel(p.columns[ci - 1].t);
+      const chordName = fixes.screen?.chords?.find((k) => Math.abs(k.t - c.t) < 0.02)?.name;
+      const chordLabel = chordName ? `<span class="chordname">${escapeHtml(chordName)}</span>` : "";
       const strum = c.notes.find((n) => n.strum)?.strum;
       const arrow = strum ? `<span class="strum" aria-label="Strum ${strum}">${strum === "up" ? "↑" : "↓"}</span>` : "";
-      return `<div class="staff-col${pageStart ? " page-start" : ""}" data-col="${ci}">${arrow}${cells}</div>`;
+      return `<div class="staff-col${pageStart ? " page-start" : ""}" data-col="${ci}">${chordLabel}${arrow}${cells}</div>`;
     })
     .join("");
   host.innerHTML = `<div class="staff-col labels" aria-hidden="true">${labels}</div>${cols}`;

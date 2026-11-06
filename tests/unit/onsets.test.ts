@@ -81,3 +81,21 @@ describe("when the whole song doesn't line up clearly", () => {
     expect(Math.abs(v!.offset - -0.2)).toBeLessThan(0.11);
   });
 });
+
+
+describe("with the notes the phone read from the Love Story video", () => {
+  // notes from a "Send reading details" (cursor times, placed in the
+  // recording's timeline), and the same recording's sound
+  const real: SyncNote[] = JSON.parse(readFileSync("tests/fixtures/love-story.notes.json", "utf8"));
+  it("lines up very clearly", () => {
+    const r = syncNotes(real, [{ start: 0, end: 1e9 }], sound);
+    expect(r.report.capo).toBe(0);
+    expect(r.report.clarity).toBeGreaterThan(2);
+    expect(Math.abs(r.report.offset)).toBeLessThan(0.1);
+    expect(r.report.snapped / r.report.columns).toBeGreaterThan(0.6);
+  });
+  it.each([1.0, -0.8])("finds the tab running %s s off", (d) => {
+    const r = syncNotes(real.map((n) => ({ ...n, t: n.t + d })), [{ start: -10, end: 1e9 }], sound);
+    expect(Math.abs(r.report.offset + d)).toBeLessThan(0.06);
+  });
+});

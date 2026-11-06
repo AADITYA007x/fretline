@@ -36,6 +36,8 @@ export interface ScreenTab {
   none?: string;
   /** Which version of the reader made it (older ones can be read again). */
   v?: number;
+  /** Chord names written above the tab, at the note under each. */
+  chords?: { t: number; name: string }[];
 }
 
 /**
@@ -154,6 +156,7 @@ export function fretLabel(n: Pick<TabNote, "fret" | "tech">): string {
   const mark = n.tech === "hammer" ? "h" : n.tech === "pull" ? "p" : n.tech === "slide" ? "/" : "";
   if (n.tech === "harmonic") return `<${n.fret}>`;
   if (n.tech === "mute") return "x";
+  if (n.tech === "slideOut") return `${n.fret}\\`;
   if (n.tech === "bend") return `${n.fret}b`;
   return `${mark}${n.fret}`;
 }
