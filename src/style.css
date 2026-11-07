@@ -1944,17 +1944,26 @@ html.in-practice body {
 }
 
 .pr-part {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 10px;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto minmax(0, 1fr) 44px;
+  gap: 6px;
   align-items: center;
-  font-size: 14px;
+}
+
+.pr-part .ctl.small {
+  min-width: 0;
+  padding: 0;
+}
+
+.pr-to {
+  font-size: 13px;
   color: var(--bone-dim);
 }
 
 .pr-part select {
-  margin-left: 4px;
-  min-height: 36px;
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
   padding: 0 8px;
   border-radius: 10px;
   border: 1px solid var(--bone-faint);
@@ -2094,9 +2103,12 @@ html.in-practice body {
 }
 
 .pr-line-no {
-  align-self: center;
+  align-self: flex-start;
+  line-height: 1.15;
+  font-size: 16px;
   color: var(--accent-bright);
-  font: 700 15px var(--ui);
+  font-weight: 700;
+  font-family: var(--ui);
 }
 
 .nb-cell.lit {
@@ -2257,4 +2269,18 @@ html.in-practice body {
   margin-top: 12px;
   font-size: 12.5px;
   line-height: 1.45;
+}
+
+.pr-wait {
+  margin: 6px 0 0;
+  font: 700 15px var(--ui);
+  color: var(--bone);
+}
+
+.pr-wait.ok {
+  color: var(--pearl);
+}
+
+.pr-wait.off {
+  color: var(--off);
 }

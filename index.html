@@ -187,15 +187,17 @@
           </div>
           <div class="pr-part">
             <button id="pr-prev-line" class="ctl small" type="button" aria-label="Previous line">◀</button>
-            <label>Line <select id="pr-from" aria-label="From line"></select></label>
-            <label>to <select id="pr-to" aria-label="To line"></select></label>
+            <select id="pr-from" aria-label="From line"></select>
+            <span class="pr-to">to</span>
+            <select id="pr-to" aria-label="To line"></select>
             <button id="pr-next-line" class="ctl small" type="button" aria-label="Next line">▶</button>
           </div>
           <div id="pr-ladder" class="pr-ladder" aria-label="Steps"></div>
           <p id="pr-stage" class="pr-stage"></p>
-          <div class="pr-note">
+          <div id="pr-note-card" class="pr-note">
             <p id="pr-now" class="pr-now"></p>
             <p id="pr-next" class="pr-next"></p>
+            <p id="pr-wait" class="pr-wait" hidden></p>
           </div>
           <div id="pr-board" class="pr-board"></div>
           <div id="pr-line" class="pr-line nb-cells"></div>
@@ -210,7 +212,8 @@
             <div class="pr-opt"><span>Start</span><div class="seg pr-seg" role="group" data-opt="start"><button type="button" data-v="step">1 by 1</button><button type="button" data-v="0.25">0.25×</button><button type="button" data-v="0.5">0.5×</button></div></div>
             <div class="pr-opt"><span>Goal</span><div class="seg pr-seg" role="group" data-opt="goal"><button type="button" data-v="0.5">0.5×</button><button type="button" data-v="0.75">0.75×</button><button type="button" data-v="1">1×</button></div></div>
             <div class="pr-opt"><span>Pace</span><div class="seg pr-seg" role="group" data-opt="pace"><button type="button" data-v="slow">Slow</button><button type="button" data-v="normal">Normal</button><button type="button" data-v="quick">Quick</button></div></div>
-            <div class="pr-opt"><span>1 by 1</span><div class="seg pr-seg" role="group" data-opt="gap"><button type="button" data-v="2">2 s a note</button><button type="button" data-v="3">3 s</button><button type="button" data-v="4">4 s</button></div></div>
+            <div class="pr-opt"><span>Listen</span><div class="seg pr-seg" role="group" data-opt="listen"><button type="button" data-v="off">Off</button><button type="button" data-v="on">Listen to me</button></div></div>
+            <div class="pr-opt"><span>1 by 1</span><div class="seg pr-seg" role="group" data-opt="gap"><button type="button" data-v="2">2 s</button><button type="button" data-v="3">3 s</button><button type="button" data-v="4">4 s</button></div></div>
             <div class="pr-opt"><span>At goal</span><div class="seg pr-seg" role="group" data-opt="after"><button type="button" data-v="repeat">Keep going</button><button type="button" data-v="next">Next line</button></div></div>
             <div class="pr-opt"><span>Sound</span><div class="seg pr-seg" role="group" data-opt="sound"><button type="button" data-v="auto">Auto</button><button type="button" data-v="pluck">Pluck</button><button type="button" data-v="video">Video</button></div></div>
           </div>
@@ -221,7 +224,7 @@
             <button id="pr-bpm-up" class="ctl small" type="button" aria-label="Faster beat">+</button>
             <button id="pr-tap" class="ctl small" type="button">Tap</button>
           </div>
-          <p class="pr-hint muted">Below 0.5× you hear Fretline's own pluck (clear, one note at a time); from 0.5× the video's sound. Fingers are a suggestion: the video's tab doesn't say which.</p>
+          <p class="pr-hint muted">Below 0.5× you hear Fretline's own pluck (clear, one note at a time); from 0.5× the video's sound. Fingers are a suggestion: the video's tab doesn't say which. Listen to me: in 1 by 1 it waits until it hears you play each note (tap the note to skip one); faster rounds end with how many notes it heard. Use earphones for faster rounds, or it hears the app's own sound.</p>
         </section>
 
         <section id="view-tuner" class="view">

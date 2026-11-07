@@ -14,6 +14,10 @@ After that, the app shows a banner when a new version is out.
 
 ## What's in it
 
+**v0.9 – Listen to me**
+
+- v0.9.0: Practice **Listen: Listen to me** (uses the mic, the phone's own when buds are in): in 1 by 1 it plucks the note, then waits until it hears you play it (single notes by pitch, an octave slip allowed; chords by which of the 12 notes sound, compared with the chord's notes; slaps by the hit), says "Heard A: try again" for a wrong note, and you tap the note to skip one; each round ends with "7 of 10 right first time". Faster rounds end with how many of the notes it heard near their time (needs earphones, or it hears the app's own sound) (`src/practice/listen.ts`). Practice header re-laid (◀ line to line ▶ on one row)
+
 **v0.8 – Practice**
 
 - v0.8.1: tap a chord name ([Am]) or a held shape ([2 1 / 3 2]) in My notes or Practice for a chord box: the shape as played here (on each string, the fret used most while that chord lasts) and the usual open shape (built-in list), with finger numbers (up the neck, and on one fret from the thicker string: Am = 1 on B, 2 on D, 3 on G; barre = 1). Practice: ◀ ▶ to move a line; "At goal: Next line" ticks the lines done and goes on; 1 by 1 holds 2, 3 or 4 s a note (3 s by default); the video's sound starts with a silent run-up and stops just before the next line's notes; the lit note is the note itself, not its chord name

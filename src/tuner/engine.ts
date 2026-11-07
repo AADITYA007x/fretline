@@ -169,6 +169,12 @@ function localStorageSet(key: string, value: string): void {
 }
 
 let levelListener: (level: number) => void = () => {};
+let frameListener: ((frame: Float32Array, sampleRate: number, level: number) => void) | null = null;
+
+/** Every raw mic frame (for Practice listening to you play); null to stop. */
+export function onFrame(fn: ((frame: Float32Array, sampleRate: number, level: number) => void) | null): void {
+  frameListener = fn;
+}
 
 /** Input loudness 0..1 on every check, for the level bar. */
 export function onLevel(fn: (level: number) => void): void {
@@ -195,6 +201,7 @@ function tick(): void {
   // new pluck or a mute.
   const level = rms(frame.subarray(frame.length - 2048));
   levelListener(level);
+  frameListener?.(frame, ctx.sampleRate, level);
   const now = performance.now();
   if (now < mutedUntil || level < SILENCE) {
     lastLevel = level;

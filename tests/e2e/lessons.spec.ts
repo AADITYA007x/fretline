@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
-import { fakeLessonInfo, fakeNative, fakeSupabase, fakeTabScan, fakeYouTube, shot, signedIn } from "./fakes";
+import { fakeMic, fakeLessonInfo, fakeNative, fakeSupabase, fakeTabScan, fakeYouTube, shot, signedIn } from "./fakes";
 
 const CAPTIONS = readFileSync("tests/fixtures/lesson-captions.json3", "utf8");
 const yt = (page: Page) => page.evaluate(() => ((window as any).__yt?.getCurrentTime() as number) ?? -1);
@@ -453,6 +453,47 @@ test.describe("reading tab from the video", () => {
     // back closes it
     await page.click("#pr-close");
     await expect(page.locator("#practice")).toBeHidden();
+  });
+
+  test("Practice, Listen to me: 1 by 1 waits until it hears the right note", async ({ page }) => {
+    await fakeSupabase(page);
+    await fakeMic(page);
+    await page.addInitScript(() => {
+      const n = (t: number, string: number, fret: number) => ({ id: `v${Math.round(t * 100)}-${string}`, t, string, fret, source: "screen" });
+      // e fret 3 (G4), B fret 1 (C4), G fret 2 (A3)
+      const notes = [n(2, 1, 3), n(2.5, 2, 1), n(3, 3, 2)];
+      const screen = { at: 1, v: 99, notes, pages: [{ start: 1.5, end: 6, notes: 3 }], capo: 0 };
+      localStorage.setItem("fretline:fixes:2Lq784V-KPw", JSON.stringify({ edits: {}, added: [], updatedAt: 1, screen }));
+      localStorage.setItem("fretline:practice-listen", "true");
+    });
+    await page.goto("/");
+    await page.click('.tab[data-view="lessons"]');
+    await page.fill("#lesson-link", "2Lq784V-KPw");
+    await page.click('#add-lesson-form button[type="submit"]');
+    await page.waitForFunction(() => (window as any).__yt);
+    await page.click("#strip-practice");
+    await expect(page.locator('.pr-seg[data-opt="listen"] button[data-v="on"]')).toHaveAttribute("aria-pressed", "true");
+    await page.click("#pr-play");
+    await expect(page.locator("#pr-now")).toHaveText("e 3");
+    await expect(page.locator("#pr-wait")).toHaveText("Your turn: play it", { timeout: 4000 });
+    // it waits: nothing played, no moving on
+    await page.waitForTimeout(800);
+    await expect(page.locator("#pr-now")).toHaveText("e 3");
+    // a wrong note: it says what it heard
+    await page.evaluate(() => (window as any).__mic.set(440));
+    await expect(page.locator("#pr-wait")).toContainText("Heard A:", { timeout: 3000 });
+    // the right one: on to the next note
+    await page.evaluate(() => (window as any).__mic.set(392));
+    await expect(page.locator("#pr-now")).toHaveText("B 1", { timeout: 4000 });
+    // tap the note to skip one
+    await expect(page.locator("#pr-wait")).toHaveText("Your turn: play it", { timeout: 4000 });
+    await page.click("#pr-note-card");
+    await expect(page.locator("#pr-now")).toHaveText("G 2", { timeout: 3000 });
+    await expect(page.locator("#pr-wait")).toHaveText("Your turn: play it", { timeout: 4000 });
+    await page.evaluate(() => (window as any).__mic.set(0));
+    await page.waitForTimeout(300);
+    await page.evaluate(() => (window as any).__mic.set(220));
+    await expect(page.locator(".toast")).toContainText("1 of 3 right first time", { timeout: 4000 });
   });
 
   test("the tape stays where you scroll it, until Back to now", async ({ page }) => {

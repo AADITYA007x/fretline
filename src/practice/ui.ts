@@ -13,6 +13,10 @@ import { shapeTarget, showShape } from "../tabs/notebook-ui";
 import { fretboardSvg, fretWindow, type Window } from "./fretboard";
 import { ladder, stageLabel, type LadderOptions, type Stage } from "./ladder";
 import { beatsBetween, estimateBeat, tapBpm, type Beat } from "./tempo";
+import { hears } from "./listen";
+import * as mic from "../tuner/engine";
+import { midiToName } from "../tuner/pitch";
+import { playColumn } from "../tabs/pluck";
 
 export interface PracticeControls {
   time(): number;
@@ -55,9 +59,29 @@ let beat: Beat | null = null;
 let taps: number[] = [];
 let win: Window = { from: 0, to: 7 };
 
+/** Listen to me: 1 by 1 waits until you play each note; faster rounds get a score. */
+let listenOn = storage.get<boolean>("fretline:practice-listen", false) === true;
+let micOurs = false;
+
 type Pass =
-  | { kind: "pluck"; times: number[]; end: number; ac: AudioContext }
-  | { kind: "video"; lastT: number; ac: AudioContext | null; t0: number; stopAt: number; heard: boolean };
+  | { kind: "pluck"; times: number[]; end: number; ac: AudioContext; base: number; rate: number; t0: number; hit: Set<number> }
+  | { kind: "video"; lastT: number; ac: AudioContext | null; t0: number; stopAt: number; heard: boolean; hit: Set<number> }
+  | Wait;
+
+/** 1 by 1, waiting for you: shows (and plucks) a note, then listens. */
+interface Wait {
+  kind: "wait";
+  i: number;
+  /** When listening starts (after the pluck has rung). */
+  listenFrom: number;
+  firstTry: boolean;
+  good: number;
+  okFrames: number;
+  lastLevel: number;
+  onsetAt: number;
+  doneAt: number;
+  said: string;
+}
 let pass: Pass | null = null;
 let gapTimer: ReturnType<typeof setTimeout> | undefined;
 let raf = 0;
@@ -107,13 +131,14 @@ function renderLadder(): void {
     .join("");
   const s = stage();
   const sound = s.sound === "pluck" ? "Fretline's pluck" : "video sound";
-  $("pr-stage").textContent = `Step ${stageIdx + 1} of ${stages.length} · ${stageLabel(s)} · ${sound} · round ${Math.min(loopIdx + 1, s.loops)} of ${s.loops}${stageIdx === stages.length - 1 ? " (goal: keeps going)" : ""}`;
+  $("pr-stage").textContent = `Step ${stageIdx + 1} of ${stages.length} · ${stageLabel(s)} · ${sound} · round ${Math.min(loopIdx + 1, s.loops)} of ${s.loops}${stageIdx === stages.length - 1 ? " (goal: keeps going)" : ""}${listenOn && lastScore ? ` · last round: ${lastScore}` : ""}`;
 }
 
 function renderOpts(): void {
   document.querySelectorAll<HTMLButtonElement>('.pr-seg[data-opt="after"] button').forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === afterGoal)));
+  document.querySelectorAll<HTMLButtonElement>('.pr-seg[data-opt="listen"] button').forEach((b) => b.setAttribute("aria-pressed", String((b.dataset.v === "on") === listenOn)));
   document.querySelectorAll<HTMLButtonElement>('.pr-seg[data-opt="gap"] button').forEach((b) => b.setAttribute("aria-pressed", String(Number(b.dataset.v) === stepSeconds)));
-  document.querySelectorAll<HTMLElement>(".pr-seg:not([data-opt=after]):not([data-opt=gap])").forEach((g) => {
+  document.querySelectorAll<HTMLElement>(".pr-seg:not([data-opt=after]):not([data-opt=gap]):not([data-opt=listen])").forEach((g) => {
     const key = g.dataset.opt as keyof LadderOptions;
     g.querySelectorAll<HTMLButtonElement>("button").forEach((b) => b.setAttribute("aria-pressed", String(String(opts[key]) === b.dataset.v)));
   });
@@ -180,6 +205,7 @@ function setPlaying(on: boolean): void {
 }
 
 function clearPass(): void {
+  $("pr-wait").hidden = true;
   clearTimeout(gapTimer);
   gapTimer = undefined;
   stopPluck();
@@ -193,6 +219,14 @@ async function startPass(): Promise<void> {
   const t0 = cols[0].t;
   const t1 = cols[cols.length - 1].t;
   renderLadder();
+  if (listenOn) await ensureMic();
+  if (s.speed === "step" && listenOn && mic.isListening()) {
+    ctl.pause();
+    ctl.mute(true);
+    pass = { kind: "wait", i: -1, listenFrom: 0, firstTry: true, good: 0, okFrames: 0, lastLevel: 0, onsetAt: 0, doneAt: 0, said: "" };
+    nextWait();
+    return;
+  }
   if (s.sound === "pluck") {
     ctl.pause();
     ctl.mute(true);
@@ -207,7 +241,7 @@ async function startPass(): Promise<void> {
       for (const b of beatsBetween(beat, t0 - 0.01, t1 + 0.5)) scheduleClick(ac, base + (b - t0) / r, isBar(b));
     }
     const end = times[times.length - 1] + (s.speed === "step" ? stepSeconds : 1.2);
-    pass = { kind: "pluck", times, end, ac };
+    pass = { kind: "pluck", times, end, ac, base, rate: s.speed === "step" ? 0 : s.speed, t0, hit: new Set() };
   } else {
     const r = s.speed === "step" ? 0.5 : s.speed;
     // a short silent run-up (muted until the first note, so the notes
@@ -219,7 +253,7 @@ async function startPass(): Promise<void> {
     const stopAt = after ? Math.max(last + 0.08, after.t - 0.25 * r) : last + 0.5;
     ctl.seek(from);
     ctl.play();
-    pass = { kind: "video", lastT: from, ac: clickOn ? await audio() : null, t0, stopAt, heard: false };
+    pass = { kind: "video", lastT: from, ac: clickOn ? await audio() : null, t0, stopAt, heard: false, hit: new Set() };
   }
 }
 
@@ -231,7 +265,13 @@ function isBar(t: number): boolean {
 
 function finishPass(): void {
   if (!running) return;
+  const done = pass;
   pass = null;
+  if (listenOn && done) {
+    if (done.kind === "wait") lastScore = `${done.good} of ${cols.length} right first time`;
+    else if (done.kind === "video" || (done.kind === "pluck" && done.rate > 0)) lastScore = `heard ${done.hit.size} of ${cols.length} notes`;
+    if (lastScore) bus.emit("toast", `Round done: ${lastScore}`);
+  }
   loopIdx++;
   const s = stage();
   if (loopIdx >= s.loops && stageIdx < stages.length - 1) {
@@ -259,7 +299,10 @@ function tick(): void {
   raf = requestAnimationFrame(tick);
   if (!isOpen() || !ctl) return;
   let idx = -1;
-  if (pass?.kind === "pluck") {
+  if (pass?.kind === "wait") {
+    idx = Math.max(0, Math.min(cols.length - 1, pass.i));
+    renderWait(pass);
+  } else if (pass?.kind === "pluck") {
     const now = pass.ac.currentTime;
     for (let i = 0; i < pass.times.length; i++) if (pass.times[i] <= now + 0.02) idx = i;
     if (now >= pass.end) finishPass();
@@ -284,6 +327,124 @@ function tick(): void {
   renderCol(idx);
 }
 
+// --- Listening to you -----------------------------------------------------------------------
+
+let lastScore = "";
+
+async function ensureMic(): Promise<void> {
+  if (mic.isListening()) {
+    mic.onFrame(onMicFrame);
+    return;
+  }
+  try {
+    await mic.startListening();
+    micOurs = true;
+    mic.onFrame(onMicFrame);
+  } catch {
+    bus.emit("toast", "Can't use the mic: allow it in Android settings to be listened to");
+    listenOn = false;
+    storage.set("fretline:practice-listen", false);
+    renderOpts();
+  }
+}
+
+function releaseMic(): void {
+  mic.onFrame(null);
+  if (micOurs) mic.stopListening();
+  micOurs = false;
+}
+
+/** Show (and pluck) the next note, then listen for it. */
+function nextWait(): void {
+  if (pass?.kind !== "wait") return;
+  pass.i++;
+  if (pass.i >= cols.length) {
+    finishPass();
+    return;
+  }
+  pass.firstTry = true;
+  pass.okFrames = 0;
+  pass.doneAt = 0;
+  pass.onsetAt = 0;
+  pass.said = "";
+  stopPluck();
+  void playColumn(cols[pass.i].notes, currentCapo());
+  // let Fretline's pluck ring out before listening (or it hears itself)
+  pass.listenFrom = performance.now() + 1300;
+}
+
+function renderWait(w: Wait): void {
+  const now = performance.now();
+  const el = $("pr-wait");
+  el.hidden = false;
+  if (w.doneAt) el.textContent = w.firstTry ? "✓ Got it" : "✓ There it is";
+  else if (now < w.listenFrom) el.textContent = "Listen…";
+  else el.textContent = w.said || "Your turn: play it";
+  el.className = `pr-wait${w.doneAt ? " ok" : w.said ? " off" : ""}`;
+}
+
+function onMicFrame(frame: Float32Array, sampleRate: number, level: number): void {
+  if (!running || !pass) return;
+  const now = performance.now();
+  if (pass.kind === "wait") {
+    const w = pass;
+    if (w.doneAt || w.i < 0 || w.i >= cols.length || now < w.listenFrom) {
+      w.lastLevel = level;
+      return;
+    }
+    if (level > 0.012 && level > w.lastLevel * 1.7) w.onsetAt = now;
+    w.lastLevel = level;
+    if (!w.onsetAt || now - w.onsetAt < 50 || level < 0.006) return;
+    const col = cols[w.i];
+    const slaps = col.notes.every((n) => n.tech === "mute");
+    const h = slaps ? { ok: now - w.onsetAt < 300 } : hears(frame, sampleRate, col.notes, currentCapo());
+    if (h.ok) {
+      if (++w.okFrames >= (slaps ? 1 : 2)) {
+        w.doneAt = now;
+        if (w.firstTry) w.good++;
+        setTimeout(() => {
+          if (pass === w) nextWait();
+        }, 450);
+      }
+    } else if (now - w.onsetAt > 350 && now - w.onsetAt < 700) {
+      w.okFrames = 0;
+      if ("midi" in h && h.midi !== undefined) {
+        w.firstTry = false;
+        w.said = `Heard ${midiToName(h.midi)}: try again`;
+      }
+    }
+    return;
+  }
+  // a faster round: which notes did it hear, near their time?
+  if (level < 0.006) return;
+  let songT: number;
+  let rate: number;
+  if (pass.kind === "pluck") {
+    if (!pass.rate) return;
+    songT = pass.t0 + (pass.ac.currentTime - pass.base) * pass.rate;
+    rate = pass.rate;
+  } else {
+    songT = ctl?.time() ?? 0;
+    rate = stage().speed === "step" ? 0.5 : (stage().speed as number);
+  }
+  // the mic is a little behind what's playing
+  const lag = 0.12 * rate;
+  for (let i = 0; i < cols.length; i++) {
+    const c = cols[i];
+    if (pass.hit.has(i) || songT < c.t - 0.05 || songT > c.t + lag + 0.45 * rate) continue;
+    if (c.notes.every((n) => n.tech === "mute") ? level > 0.02 : hears(frame, sampleRate, c.notes, currentCapo()).ok) pass.hit.add(i);
+  }
+}
+
+function skipWait(): void {
+  if (pass?.kind !== "wait" || pass.doneAt) return;
+  pass.firstTry = false;
+  pass.doneAt = performance.now();
+  setTimeout(() => {
+    if (pass?.kind === "wait") nextWait();
+  }, 150);
+}
+
 function start(): void {
   if (!cols.length) {
     bus.emit("toast", "No notes in these lines");
@@ -300,6 +461,8 @@ function stop(): void {
   clearPass();
   ctl?.pause();
   setPlaying(false);
+  releaseMic();
+  $("pr-wait").hidden = true;
 }
 
 function move(by: number): void {
@@ -388,6 +551,8 @@ export function initPractice(controls: PracticeControls): void {
   $("pr-close").addEventListener("click", () => closePractice());
   $("pr-play").addEventListener("click", () => (running ? stop() : start()));
   $("pr-up").addEventListener("click", () => move(1));
+  // tap the note card to skip a note you can't get (while it listens)
+  $("pr-note-card").addEventListener("click", skipWait);
   $("pr-line").addEventListener("click", (e) => {
     const el = shapeTarget(e.target);
     if (el) showShape(el);
@@ -413,6 +578,16 @@ export function initPractice(controls: PracticeControls): void {
       const b = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-v]");
       if (!b) return;
       const v = b.dataset.v!;
+      if (g.dataset.opt === "listen") {
+        listenOn = v === "on";
+        storage.set("fretline:practice-listen", listenOn);
+        lastScore = "";
+        renderOpts();
+        if (listenOn) void ensureMic();
+        else releaseMic();
+        if (running) void startPass();
+        return;
+      }
       if (g.dataset.opt === "gap") {
         stepSeconds = Number(v) || 3;
         storage.set("fretline:practice-gap", stepSeconds);
