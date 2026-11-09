@@ -16,6 +16,7 @@ After that, the app shows a banner when a new version is out.
 
 **v0.9 – Listen to me**
 
+- v0.9.1: listening shows live what it heard: each note in the line turns green with ✓ when heard, red when its moment passed unheard, and a level bar on the note card shows the mic hearing you; a note now counts up to ~0.7 s late in real time (Bluetooth buds are late); with Listen on, Fretline's pluck steps (0.25×…) go quiet (click only) so you play and it hears you, not itself; a slap with notes is found through the hit (one clear reading is enough)
 - v0.9.0: Practice **Listen: Listen to me** (uses the mic, the phone's own when buds are in): in 1 by 1 it plucks the note, then waits until it hears you play it (single notes by pitch, an octave slip allowed; chords by which of the 12 notes sound, compared with the chord's notes; slaps by the hit), says "Heard A: try again" for a wrong note, and you tap the note to skip one; each round ends with "7 of 10 right first time". Faster rounds end with how many of the notes it heard near their time (needs earphones, or it hears the app's own sound) (`src/practice/listen.ts`). Practice header re-laid (◀ line to line ▶ on one row)
 
 **v0.8 – Practice**

@@ -2284,3 +2284,40 @@ html.in-practice body {
 .pr-wait.off {
   color: var(--off);
 }
+
+/* listening: what it heard, live */
+.pr-note {
+  position: relative;
+}
+
+.pr-meter {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  bottom: 10px;
+  width: 5px;
+  border-radius: 3px;
+  background: linear-gradient(to top, var(--pearl) calc(var(--level, 0) * 100%), var(--bone-faint) 0);
+  opacity: 0.9;
+}
+
+.nb-cell.heard .nb-top {
+  color: var(--pearl);
+}
+
+.nb-cell.heard::after {
+  content: "✓";
+  font-size: 11px;
+  color: var(--pearl);
+}
+
+.nb-cell.missed .nb-top {
+  color: var(--off);
+}
+
+.nb-cell.missed::after {
+  content: "·";
+  font-size: 14px;
+  line-height: 0.6;
+  color: var(--off);
+}

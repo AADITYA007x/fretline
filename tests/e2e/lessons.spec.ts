@@ -494,6 +494,15 @@ test.describe("reading tab from the video", () => {
     await page.waitForTimeout(300);
     await page.evaluate(() => (window as any).__mic.set(220));
     await expect(page.locator(".toast")).toContainText("1 of 3 right first time", { timeout: 4000 });
+    // at 0.25× you play (Fretline keeps quiet) and the line shows live what it heard
+    await page.click("#pr-play");
+    await page.click('.pr-seg[data-opt="start"] button[data-v="0.25"]');
+    await expect(page.locator(".pr-rung.now")).toHaveText("0.25×");
+    await expect(page.locator("#pr-stage")).toContainText("you play");
+    await page.click("#pr-play");
+    await page.evaluate(() => (window as any).__mic.set(392));
+    await expect(page.locator("#pr-line .nb-cell.heard")).toHaveCount(1, { timeout: 4000 });
+    await expect(page.locator("#pr-line .nb-cell.missed").first()).toBeAttached({ timeout: 8000 });
   });
 
   test("the tape stays where you scroll it, until Back to now", async ({ page }) => {

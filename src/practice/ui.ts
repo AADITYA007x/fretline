@@ -173,9 +173,15 @@ function describe(c: Col | undefined): string {
   return (strum ? "Roll · " : "") + parts.join(" + ");
 }
 
+/** Live marks while listening: which notes it heard (✓) or missed. */
+let marks: { hit: Set<number>; missed: Set<number> } = { hit: new Set(), missed: new Set() };
+let marksKey = "";
+
 function renderCol(i: number): void {
-  if (i === shownCol) return;
+  const key = `${marks.hit.size}/${marks.missed.size}`;
+  if (i === shownCol && key === marksKey) return;
   shownCol = i;
+  marksKey = key;
   const c = i >= 0 ? cols[i] : undefined;
   const next = cols[i + 1] ?? (i < 0 ? cols[0] : undefined);
   $("pr-now").textContent = c ? describe(c) : cols.length ? "Ready" : "No notes in these lines";
@@ -194,7 +200,12 @@ function renderCol(i: number): void {
     // the note itself (not a held shape or the chord name before it)
     if (c && cell.mark !== "hold" && cell.t <= c.t + 0.02) lit = k;
   });
-  $("pr-line").innerHTML = `<span class="pr-line-no">${line.n}</span>` + line.cells.map((cell, k) => cellHtml(cell, k === lit ? "lit" : "")).join("");
+  const mark = (t: number) => {
+    const ci = cols.findIndex((o) => Math.abs(o.t - t) < 0.02);
+    return ci < 0 ? "" : marks.hit.has(ci) ? " heard" : marks.missed.has(ci) ? " missed" : "";
+  };
+  $("pr-line").innerHTML =
+    `<span class="pr-line-no">${line.n}</span>` + line.cells.map((cell, k) => cellHtml(cell, (k === lit ? "lit" : "") + (cell.mark === "hold" ? "" : mark(cell.t)))).join("");
 }
 
 // --- Running the ladder ------------------------------------------------------------------
@@ -215,6 +226,7 @@ function clearPass(): void {
 async function startPass(): Promise<void> {
   if (!running || !ctl || !cols.length) return;
   clearPass();
+  marks = { hit: new Set(), missed: new Set() };
   const s = stage();
   const t0 = cols[0].t;
   const t1 = cols[cols.length - 1].t;
@@ -310,10 +322,18 @@ function tick(): void {
   } else if (pass?.kind === "pluck") {
     const now = pass.ac.currentTime;
     for (let i = 0; i < pass.times.length; i++) if (pass.times[i] <= now + 0.02) idx = i;
+    if (listenOn && pass.rate) {
+      marks.hit = pass.hit;
+      updateMissed(pass.t0 + (now - pass.base) * pass.rate, pass.rate, pass.hit);
+    }
     if (now >= pass.end) finishPass();
   } else if (pass?.kind === "video") {
     const t = ctl.time();
     for (let i = 0; i < cols.length; i++) if (cols[i].t <= t + 0.02) idx = i;
+    if (listenOn) {
+      marks.hit = pass.hit;
+      updateMissed(t, stage().speed === "step" ? 0.5 : (stage().speed as number), pass.hit);
+    }
     // the click: a beat passed since the last frame
     if (pass.ac && beat && t > pass.lastT && t - pass.lastT < 0.5) for (const b of beatsBetween(beat, pass.lastT + 1e-4, t)) scheduleClick(pass.ac, pass.ac.currentTime, isBar(b));
     pass.lastT = t;
@@ -355,6 +375,7 @@ async function ensureMic(): Promise<void> {
 
 function releaseMic(): void {
   mic.onFrame(null);
+  $("pr-meter").style.setProperty("--level", "0");
   if (micOurs) mic.stopListening();
   micOurs = false;
 }
@@ -389,6 +410,9 @@ function renderWait(w: Wait): void {
 }
 
 function onMicFrame(frame: Float32Array, sampleRate: number, level: number): void {
+  // how loud the mic hears you, so you can see it's listening
+  const meter = $("pr-meter");
+  meter.style.setProperty("--level", String(Math.min(1, level * 12)));
   if (!running || !pass) return;
   const now = performance.now();
   if (pass.kind === "wait") {
@@ -433,13 +457,26 @@ function onMicFrame(frame: Float32Array, sampleRate: number, level: number): voi
     songT = ctl?.time() ?? 0;
     rate = stage().speed === "step" ? 0.5 : (stage().speed as number);
   }
-  // the mic is a little behind what's playing
-  const lag = 0.12 * rate;
   for (let i = 0; i < cols.length; i++) {
     const c = cols[i];
-    if (pass.hit.has(i) || songT < c.t - 0.05 || songT > c.t + lag + 0.45 * rate) continue;
+    const [a, b] = windowOf(c, rate);
+    if (pass.hit.has(i) || songT < a || songT > b) continue;
     if (c.notes.every((n) => n.tech === "mute") ? level > 0.02 : hears(frame, sampleRate, c.notes, currentCapo()).ok) pass.hit.add(i);
   }
+}
+
+/**
+ * When a note counts as played (song seconds): a little early is fine, and
+ * up to ~0.7 s late in real time (you hear the sound late through Bluetooth
+ * buds, react, and the mic is a little behind too).
+ */
+function windowOf(c: Col, rate: number): [number, number] {
+  return [c.t - 0.15 * rate, c.t + 0.7 * rate];
+}
+
+/** Notes whose time has passed without being heard. */
+function updateMissed(songT: number, rate: number, hit: Set<number>): void {
+  for (let i = 0; i < cols.length; i++) if (!hit.has(i) && songT > windowOf(cols[i], rate)[1]) marks.missed.add(i);
 }
 
 function skipWait(): void {
