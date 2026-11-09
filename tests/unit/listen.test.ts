@@ -48,6 +48,23 @@ describe("hearing you play", () => {
       for (const o of others) expect(hears(play(o), SR, chord, 0).ok).toBe(false);
     }
   });
+  it("a slap with a note: the note is found through the hit", () => {
+    const hit = (frame: Float32Array) => {
+      // a thump of noise on top
+      let seed = 7;
+      const out = new Float32Array(frame);
+      for (let i = 0; i < 2000; i++) {
+        seed = (seed * 16807) % 2147483647;
+        out[out.length - 4096 + i] += ((seed / 2147483647) * 2 - 1) * 0.15 * Math.exp(-i / 400);
+      }
+      return out;
+    };
+    const col = [n(6, 0, { tech: "mute" }), n(5, 0, { tech: "mute" }), n(3, 2), n(2, 3)];
+    expect(hears(hit(play([n(3, 2), n(2, 3)])), SR, col, 0).ok).toBe(true);
+    expect(hears(hit(play([n(3, 2)])), SR, [n(6, 0, { tech: "mute" }), n(3, 2)], 0).ok).toBe(true);
+    // the wrong notes with the slap: no
+    expect(hears(hit(play([n(3, 5), n(2, 6)])), SR, col, 0).ok).toBe(false);
+  });
   it("chroma sums to 1 and is strongest on the chord's notes", () => {
     const c = chromaOf(play(AM), SR);
     expect(c.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 5);

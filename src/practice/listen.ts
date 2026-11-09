@@ -55,6 +55,24 @@ export interface Heard {
 export function hears(frame: Float32Array, sampleRate: number, notes: TabNote[], capo: number): Heard {
   const midis = expectedMidis(notes, capo);
   if (!midis.length) return { ok: false };
+  if (notes.some((n) => n.tech === "mute")) {
+    // a slap with notes: the hit muddies the pitch, so just look for the
+    // notes' own sound among it (or a looser pitch read for one note)
+    const chroma = chromaOf(frame, sampleRate);
+    const pcs = [...new Set(midis.map((m) => ((m % 12) + 12) % 12))];
+    const inside = pcs.reduce((a, pc) => a + chroma[pc], 0);
+    const each = pcs.every((pc) => chroma[pc] > 0.06);
+    if (each && inside >= 0.25 * Math.min(1, pcs.length / 2 + 0.5)) return { ok: true };
+    if (midis.length === 1) {
+      const p = detectPitch(frame, { sampleRate, minFreq: 70, maxFreq: 1400 });
+      if (p && p.clarity >= 0.5) {
+        const m = freqToMidi(p.freq);
+        const off = Math.min(Math.abs(m - midis[0]), Math.abs(m - midis[0] - 12), Math.abs(m - midis[0] + 12));
+        if (off <= 0.7) return { ok: true };
+      }
+    }
+    return { ok: false };
+  }
   if (midis.length === 1) {
     const p = detectPitch(frame, { sampleRate, minFreq: 70, maxFreq: 1400 });
     if (!p || p.clarity < 0.7) return { ok: false };

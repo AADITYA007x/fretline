@@ -130,7 +130,7 @@ function renderLadder(): void {
     .map((s, i) => `<span class="pr-rung${i === stageIdx ? " now" : i < stageIdx ? " done" : ""}">${stageLabel(s)}</span>`)
     .join("");
   const s = stage();
-  const sound = s.sound === "pluck" ? "Fretline's pluck" : "video sound";
+  const sound = s.sound === "pluck" ? (listenOn && s.speed !== "step" ? "you play (click only)" : "Fretline's pluck") : "video sound";
   $("pr-stage").textContent = `Step ${stageIdx + 1} of ${stages.length} · ${stageLabel(s)} · ${sound} · round ${Math.min(loopIdx + 1, s.loops)} of ${s.loops}${stageIdx === stages.length - 1 ? " (goal: keeps going)" : ""}${listenOn && lastScore ? ` · last round: ${lastScore}` : ""}`;
 }
 
@@ -235,8 +235,13 @@ async function startPass(): Promise<void> {
     const base = ac.currentTime + 0.3;
     const capo = currentCapo();
     const times = cols.map((c, i) => base + (s.speed === "step" ? i * stepSeconds : (c.t - t0) / s.speed));
-    cols.forEach((c, i) => scheduleColumn(ac, c.notes, capo, times[i]));
-    if (clickOn && beat && s.speed !== "step") {
+    // listening: you play and Fretline keeps quiet (only the click), so the
+    // mic hears you, not the app
+    const youPlay = listenOn && s.speed !== "step";
+    if (!youPlay) cols.forEach((c, i) => scheduleColumn(ac, c.notes, capo, times[i]));
+    // no beat known: a soft tick on each note instead
+    else if (!beat) times.forEach((t) => scheduleClick(ac, t, false, 0.35));
+    if ((clickOn || youPlay) && beat && s.speed !== "step") {
       const r = s.speed;
       for (const b of beatsBetween(beat, t0 - 0.01, t1 + 0.5)) scheduleClick(ac, base + (b - t0) / r, isBar(b));
     }
@@ -397,9 +402,10 @@ function onMicFrame(frame: Float32Array, sampleRate: number, level: number): voi
     if (!w.onsetAt || now - w.onsetAt < 50 || level < 0.006) return;
     const col = cols[w.i];
     const slaps = col.notes.every((n) => n.tech === "mute");
+    const withSlap = !slaps && col.notes.some((n) => n.tech === "mute");
     const h = slaps ? { ok: now - w.onsetAt < 300 } : hears(frame, sampleRate, col.notes, currentCapo());
     if (h.ok) {
-      if (++w.okFrames >= (slaps ? 1 : 2)) {
+      if (++w.okFrames >= (slaps || withSlap ? 1 : 2)) {
         w.doneAt = now;
         if (w.firstTry) w.good++;
         setTimeout(() => {
@@ -408,7 +414,7 @@ function onMicFrame(frame: Float32Array, sampleRate: number, level: number): voi
       }
     } else if (now - w.onsetAt > 350 && now - w.onsetAt < 700) {
       w.okFrames = 0;
-      if ("midi" in h && h.midi !== undefined) {
+      if (!withSlap && "midi" in h && h.midi !== undefined) {
         w.firstTry = false;
         w.said = `Heard ${midiToName(h.midi)}: try again`;
       }
