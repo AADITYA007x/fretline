@@ -20,7 +20,10 @@ import {
 } from "./store";
 import { LessonPlayer, STATE } from "./yt-player";
 import { notesFromSpeech } from "../tabs/speech";
-import { fromSpoken } from "../tabs/tab";
+import { applyFixes, fromSpoken } from "../tabs/tab";
+import { getFixes } from "../tabs/fixes";
+import { notebookLines } from "../tabs/notebook";
+import { allDays, getProgress, speedLabel, streak, today as todayKey } from "../practice/progress";
 import { clearTab, followAgain, initStrip, reloadFixes, render as renderStrip, renderPicture, setStepMode, setTab, stepCancelHold, stepMode, stepTick, type StripControls } from "../tabs/strip";
 import { initScanUi, renderScanButton } from "../scan/ui";
 import { highlightNotebook, initNotebook, renderNotebook } from "../tabs/notebook-ui";
@@ -97,7 +100,63 @@ export function formatTime(sec: number): string {
 
 // --- List ---------------------------------------------------------------------------
 
+/** Open Practice in the open lesson (at a line of My notes, or a moment). */
+function practiceAt(at: { line?: number; t?: number }): void {
+  if (!current) return;
+  // practice runs its own note by note
+  if (stepMode()) {
+    setStepMode(false);
+    $("lesson-step").setAttribute("aria-pressed", "false");
+  }
+  pausePlayer();
+  openPractice(current.title, at);
+}
+
+/** Pick up where you left off: each lesson with a tab, your next line and best speed. */
+function renderToday(): void {
+  const list = lessons().filter((l) => (getFixes(l.videoId).screen?.notes.length ?? 0) > 0);
+  $("today").hidden = !list.length;
+  if (!list.length) return;
+  const days = allDays(lessons().map((l) => l.videoId));
+  const mins = Math.round((days[todayKey()] ?? 0) / 60);
+  const run = streak(days);
+  $("today-stats").textContent = [run ? `${run} day${run === 1 ? "" : "s"} in a row` : "", `${mins} min today`].filter(Boolean).join(" · ");
+  const rows = list
+    .map((l) => {
+      const fixes = getFixes(l.videoId);
+      const notes = applyFixes(fixes.screen!.notes, fixes);
+      const nl = notebookLines(notes, fixes.screen?.chords ?? []);
+      const p = getProgress(l.videoId);
+      const next = nl.find((x) => !p.done.includes(x.n)) ?? nl[0];
+      const best = next ? p.best[next.n] : undefined;
+      return { l, nl, p, next, best, at: p.last?.at ?? 0 };
+    })
+    .filter((r) => r.next)
+    .sort((a, b) => b.at - a.at || b.l.openedAt - a.l.openedAt);
+  const host = $("today-list");
+  host.innerHTML = rows
+    .map(({ l, nl, p, next, best }) => {
+      const pct = nl.length ? Math.round((p.done.filter((n) => n <= nl.length).length / nl.length) * 100) : 0;
+      const detail = [`line ${next!.n} of ${nl.length}`, `${p.done.length} done`, best !== undefined ? `best here ${speedLabel(best)}` : ""].filter(Boolean).join(" · ");
+      return `<div class="today-row">
+  <div class="today-meta"><b>${escapeHtml(l.title)}</b><span class="muted">${escapeHtml(detail)}</span>
+    <span class="today-bar" aria-label="${pct}% of lines done"><span style="width:${pct}%"></span></span></div>
+  <button type="button" class="row-action today-go" data-id="${escapeHtml(l.videoId)}" data-line="${next!.n}">Practice</button>
+</div>`;
+    })
+    .join("");
+  host.querySelectorAll<HTMLButtonElement>(".today-go").forEach((b) =>
+    b.addEventListener("click", () => {
+      const id = b.dataset.id!;
+      const line = Number(b.dataset.line);
+      void openLesson(id);
+      practiceAt({ line });
+    }),
+  );
+}
+
 function renderList(): void {
+  renderToday();
   const list = lessons();
   $("lessons-empty").hidden = list.length > 0;
   const host = $("lesson-list");
@@ -521,16 +580,7 @@ export function initLessons(): void {
       renderNotebook();
     },
   });
-  const practice = (at: { line?: number; t?: number }) => {
-    if (!current) return;
-    // practice runs its own note by note
-    if (stepMode()) {
-      setStepMode(false);
-      $("lesson-step").setAttribute("aria-pressed", "false");
-    }
-    pausePlayer();
-    openPractice(current.title, at);
-  };
+  const practice = practiceAt;
   $("strip-practice").addEventListener("click", (e) => {
     e.stopPropagation();
     practice({ t: player?.time() ?? 0 });
@@ -547,6 +597,7 @@ export function initLessons(): void {
     if (kind === "fixes" && id) {
       reloadFixes(id);
       renderScanButton();
+      if (!current) renderToday();
     }
     if (kind === "lesson") {
       if (!current) renderList();

@@ -13,6 +13,7 @@ import { initTheme } from "./ui/theme";
 import { initToast } from "./ui/toast";
 import { initUpdate } from "./ui/update";
 import { initTuner, stopTuner } from "./tuner/ui";
+import { initMetronome } from "./tuner/metronome";
 import { initLessons } from "./lessons/ui";
 
 initBack();
@@ -23,6 +24,7 @@ whenEntryOpens(stopTuner);
 initTheme();
 initMenu();
 initTuner();
+initMetronome();
 initLessons();
 initNav(); // after the tuner, so it hears which section opens first
 initUpdate();

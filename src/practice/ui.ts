@@ -14,6 +14,7 @@ import { fretboardSvg, fretWindow, type Window } from "./fretboard";
 import { ladder, stageLabel, type LadderOptions, type Stage } from "./ladder";
 import { beatsBetween, estimateBeat, tapBpm, type Beat } from "./tempo";
 import { hears } from "./listen";
+import { addSeconds, recordRound } from "./progress";
 import * as mic from "../tuner/engine";
 import { midiToName } from "../tuner/pitch";
 import { playColumn } from "../tabs/pluck";
@@ -66,7 +67,28 @@ let micOurs = false;
 type Pass =
   | { kind: "pluck"; times: number[]; end: number; ac: AudioContext; base: number; rate: number; t0: number; hit: Set<number> }
   | { kind: "video"; lastT: number; ac: AudioContext | null; t0: number; stopAt: number; heard: boolean; hit: Set<number> }
-  | Wait;
+  | Wait
+  | Echo;
+
+/**
+ * Listening at the video's speeds: it plays half a bar, stops, and you play
+ * it back (no earphones needed: it's quiet while you play); then the next.
+ */
+interface Echo {
+  kind: "echo";
+  rate: number;
+  chunks: { from: number; to: number }[];
+  ci: number;
+  phase: "play" | "you" | "next";
+  stopAt: number;
+  unmuted: boolean;
+  /** Your turn: listening from, last progress, the note expected next. */
+  youFrom: number;
+  lastHitAt: number;
+  j: number;
+  lastLevel: number;
+  hit: Set<number>;
+}
 
 /** 1 by 1, waiting for you: shows (and plucks) a note, then listens. */
 interface Wait {
@@ -130,7 +152,8 @@ function renderLadder(): void {
     .map((s, i) => `<span class="pr-rung${i === stageIdx ? " now" : i < stageIdx ? " done" : ""}">${stageLabel(s)}</span>`)
     .join("");
   const s = stage();
-  const sound = s.sound === "pluck" ? (listenOn && s.speed !== "step" ? "you play (click only)" : "Fretline's pluck") : "video sound";
+  const sound =
+    s.sound === "pluck" ? (listenOn && s.speed !== "step" ? "you play (click only)" : "Fretline's pluck") : listenOn ? "video plays half a bar, then you" : "video sound";
   $("pr-stage").textContent = `Step ${stageIdx + 1} of ${stages.length} · ${stageLabel(s)} · ${sound} · round ${Math.min(loopIdx + 1, s.loops)} of ${s.loops}${stageIdx === stages.length - 1 ? " (goal: keeps going)" : ""}${listenOn && lastScore ? ` · last round: ${lastScore}` : ""}`;
 }
 
@@ -259,6 +282,11 @@ async function startPass(): Promise<void> {
     }
     const end = times[times.length - 1] + (s.speed === "step" ? stepSeconds : 1.2);
     pass = { kind: "pluck", times, end, ac, base, rate: s.speed === "step" ? 0 : s.speed, t0, hit: new Set() };
+  } else if (listenOn) {
+    const r = s.speed === "step" ? 0.5 : s.speed;
+    ctl.setRate(r);
+    pass = { kind: "echo", rate: r, chunks: chunksOf(r), ci: -1, phase: "next", stopAt: 0, unmuted: false, youFrom: 0, lastHitAt: 0, j: 0, lastLevel: 0, hit: new Set() };
+    nextChunk();
   } else {
     const r = s.speed === "step" ? 0.5 : s.speed;
     // a short silent run-up (muted until the first note, so the notes
@@ -281,13 +309,34 @@ function isBar(t: number): boolean {
   return ((k % 4) + 4) % 4 === 0;
 }
 
+function partLines(): number[] {
+  const from = Number(($("pr-from") as HTMLSelectElement).value);
+  const to = Number(($("pr-to") as HTMLSelectElement).value);
+  const out: number[] = [];
+  for (let n = from; n <= to; n++) out.push(n);
+  return out;
+}
+
+/** Practice time: counted while it runs, saved now and then. */
+let runSince = 0;
+function flushTime(): void {
+  if (!runSince || !videoId) return;
+  const now = performance.now();
+  addSeconds(videoId, (now - runSince) / 1000);
+  runSince = running ? now : 0;
+}
+
 function finishPass(): void {
   if (!running) return;
   const done = pass;
   pass = null;
+  if (videoId && done) {
+    const sp = stage().speed;
+    recordRound(videoId, partLines(), sp === "step" ? 0 : sp);
+  }
   if (listenOn && done) {
     if (done.kind === "wait") lastScore = `${done.good} of ${cols.length} right first time`;
-    else if (done.kind === "video" || (done.kind === "pluck" && done.rate > 0)) lastScore = `heard ${done.hit.size} of ${cols.length} notes`;
+    else if (done.kind === "video" || done.kind === "echo" || (done.kind === "pluck" && done.rate > 0)) lastScore = `heard ${done.hit.size} of ${cols.length} notes`;
     if (lastScore) bus.emit("toast", `Round done: ${lastScore}`);
   }
   loopIdx++;
@@ -316,10 +365,36 @@ function finishPass(): void {
 function tick(): void {
   raf = requestAnimationFrame(tick);
   if (!isOpen() || !ctl) return;
+  if (running && runSince && performance.now() - runSince > 60_000) flushTime();
   let idx = -1;
   if (pass?.kind === "wait") {
     idx = Math.max(0, Math.min(cols.length - 1, pass.i));
     renderWait(pass);
+  } else if (pass?.kind === "echo") {
+    const e = pass;
+    marks.hit = e.hit;
+    const c = e.chunks[e.ci];
+    if (e.phase === "play" && c) {
+      const t = ctl.time();
+      for (let i = c.from; i <= c.to; i++) if (cols[i].t <= t + 0.02) idx = i;
+      if (!e.unmuted && t >= cols[c.from].t - 0.06) {
+        e.unmuted = true;
+        ctl.mute(false);
+      }
+      if (t >= e.stopAt) {
+        ctl.mute(true);
+        ctl.pause();
+        e.phase = "you";
+        // let the video's sound die away before listening
+        e.youFrom = performance.now() + 350;
+        e.lastHitAt = 0;
+      }
+    } else if (e.phase === "you" && c) {
+      idx = Math.min(c.to, c.from + e.j);
+      const quiet = performance.now() - Math.max(e.youFrom, e.lastHitAt);
+      if (quiet > 3000) echoTurnOver(e);
+    } else if (c) idx = c.to;
+    renderEcho(e);
   } else if (pass?.kind === "pluck") {
     const now = pass.ac.currentTime;
     for (let i = 0; i < pass.times.length; i++) if (pass.times[i] <= now + 0.02) idx = i;
@@ -446,6 +521,32 @@ function onMicFrame(frame: Float32Array, sampleRate: number, level: number): voi
     }
     return;
   }
+  if (pass.kind === "echo") {
+    const e = pass;
+    const c = e.chunks[e.ci];
+    if (e.phase !== "you" || !c || now < e.youFrom) {
+      e.lastLevel = level;
+      return;
+    }
+    e.lastLevel = level;
+    if (level < 0.006) return;
+    // the note it's waiting for, or the one after (if you skipped one)
+    for (const k of [e.j, e.j + 1]) {
+      const i = c.from + k;
+      if (i > c.to) break;
+      const col = cols[i];
+      const ok = col.notes.every((n) => n.tech === "mute") ? level > 0.02 : hears(frame, sampleRate, col.notes, currentCapo()).ok;
+      if (ok) {
+        if (k === e.j + 1) marks.missed.add(c.from + e.j);
+        e.hit.add(i);
+        e.j = k + 1;
+        e.lastHitAt = now;
+        if (c.from + e.j > c.to) echoTurnOver(e);
+        break;
+      }
+    }
+    return;
+  }
   // a faster round: which notes did it hear, near their time?
   if (level < 0.006) return;
   let songT: number;
@@ -466,6 +567,72 @@ function onMicFrame(frame: Float32Array, sampleRate: number, level: number): voi
   }
 }
 
+/** The part in half bars (a whole bar when half a bar is too quick to hear). */
+function chunksOf(rate: number): { from: number; to: number }[] {
+  const out: { from: number; to: number }[] = [];
+  if (beat) {
+    const period = 60 / beat.bpm;
+    const beats = (2 * period) / rate < 1.2 ? 4 : 2;
+    const len = beats * period;
+    let start = 0;
+    let key = Math.floor((cols[0].t - beat.phase + 0.05) / len);
+    for (let i = 1; i <= cols.length; i++) {
+      const k = i < cols.length ? Math.floor((cols[i].t - beat.phase + 0.05) / len) : Infinity;
+      if (k !== key) {
+        out.push({ from: start, to: i - 1 });
+        start = i;
+        key = k;
+      }
+    }
+  } else for (let i = 0; i < cols.length; i += 4) out.push({ from: i, to: Math.min(cols.length - 1, i + 3) });
+  // a single note on its own joins the one before
+  for (let k = out.length - 1; k > 0; k--)
+    if (out[k].to === out[k].from) {
+      out[k - 1].to = out[k].to;
+      out.splice(k, 1);
+    }
+  return out;
+}
+
+function nextChunk(): void {
+  if (pass?.kind !== "echo" || !ctl) return;
+  const e = pass;
+  e.ci++;
+  if (e.ci >= e.chunks.length) {
+    finishPass();
+    return;
+  }
+  const c = e.chunks[e.ci];
+  const first = cols[c.from].t;
+  const last = cols[c.to].t;
+  const nextT = cols[c.to + 1]?.t ?? after?.t;
+  e.stopAt = nextT !== undefined ? Math.max(last + 0.08, nextT - 0.6 * e.rate) : last + 0.5;
+  e.unmuted = false;
+  e.phase = "play";
+  e.j = 0;
+  ctl.mute(true);
+  ctl.seek(Math.max(0, first - 0.6 * e.rate));
+  ctl.play();
+}
+
+function renderEcho(e: Echo): void {
+  const el = $("pr-wait");
+  el.hidden = false;
+  const c = e.chunks[e.ci];
+  const n = c ? c.to - c.from + 1 : 0;
+  el.className = "pr-wait";
+  el.textContent = e.phase === "play" ? `Listen… (part ${e.ci + 1} of ${e.chunks.length})` : e.phase === "you" ? `Your turn: play those ${n} notes` : "";
+}
+
+function echoTurnOver(e: Echo): void {
+  const c = e.chunks[e.ci];
+  for (let i = c.from; i <= c.to; i++) if (!e.hit.has(i)) marks.missed.add(i);
+  e.phase = "next";
+  setTimeout(() => {
+    if (pass === e) nextChunk();
+  }, 450);
+}
+
 /**
  * When a note counts as played (song seconds): a little early is fine, and
  * up to ~0.7 s late in real time (you hear the sound late through Bluetooth
@@ -481,6 +648,15 @@ function updateMissed(songT: number, rate: number, hit: Set<number>): void {
 }
 
 function skipWait(): void {
+  if (pass?.kind === "echo" && pass.phase === "you") {
+    const e = pass;
+    const c = e.chunks[e.ci];
+    marks.missed.add(c.from + e.j);
+    e.j++;
+    e.lastHitAt = performance.now();
+    if (c.from + e.j > c.to) echoTurnOver(e);
+    return;
+  }
   if (pass?.kind !== "wait" || pass.doneAt) return;
   pass.firstTry = false;
   pass.doneAt = performance.now();
@@ -496,11 +672,14 @@ function start(): void {
   }
   running = true;
   loopIdx = 0;
+  runSince = performance.now();
   setPlaying(true);
   void startPass();
 }
 
 function stop(): void {
+  flushTime();
+  runSince = 0;
   running = false;
   clearPass();
   ctl?.pause();

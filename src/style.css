@@ -2321,3 +2321,158 @@ html.in-practice body {
   line-height: 0.6;
   color: var(--off);
 }
+
+/* --- Practice list on the lessons page ------------------------------------------------------ */
+.today {
+  margin: 14px 0 6px;
+  padding: 12px 14px 6px;
+  border-radius: 16px;
+  background: var(--board-2);
+  border: 1px solid var(--bone-faint);
+}
+
+.today-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.today-head h2 {
+  margin: 0;
+  font: 700 18px var(--display);
+}
+
+.today-head span {
+  font-size: 13px;
+}
+
+.today-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid var(--bone-faint);
+}
+
+.today-row:first-child {
+  border-top: 0;
+}
+
+.today-meta {
+  display: grid;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+
+.today-meta b {
+  font-size: 14.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.today-meta .muted {
+  font-size: 12.5px;
+}
+
+.today-bar {
+  display: block;
+  height: 4px;
+  margin-top: 3px;
+  border-radius: 2px;
+  background: var(--bone-faint);
+  overflow: hidden;
+}
+
+.today-bar span {
+  display: block;
+  height: 100%;
+  background: var(--pearl);
+}
+
+/* --- Metronome (under the tuner) -------------------------------------------------------------- */
+.metro {
+  margin: 22px 0 8px;
+  padding: 12px 14px 14px;
+  border-radius: 16px;
+  background: var(--board-2);
+  border: 1px solid var(--bone-faint);
+  display: grid;
+  gap: 10px;
+}
+
+.metro-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.metro-head h2 {
+  margin: 0;
+  font: 700 17px var(--display);
+}
+
+.metro-dots {
+  display: flex;
+  gap: 8px;
+}
+
+.metro-dots i {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid var(--bone-dim);
+}
+
+.metro-dots i.first {
+  border-color: var(--accent);
+}
+
+.metro-dots i.on {
+  background: var(--bone);
+  border-color: var(--bone);
+}
+
+.metro-dots i.first.on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.metro-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.metro-bpm {
+  flex: 1;
+  text-align: center;
+  color: var(--bone-dim);
+  font-size: 14px;
+}
+
+.metro-bpm b {
+  color: var(--bone);
+  font: 700 28px var(--mono);
+  margin-right: 4px;
+}
+
+.metro-slider {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.metro-row .seg {
+  flex: 1;
+}
+
+.metro-row .seg button[aria-pressed="true"] {
+  background: var(--board);
+  color: var(--accent-bright);
+}
+
+.metro-go {
+  min-width: 96px;
+}

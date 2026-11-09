@@ -14,6 +14,10 @@ After that, the app shows a banner when a new version is out.
 
 ## What's in it
 
+**v1.0 – Practice list, play-back listening, metronome**
+
+- v1.0.0: **Practice list** at the top of Lessons: each lesson with a tab, your next line (first not ticked), lines done with a bar, the best speed reached on that line, days in a row and minutes today; **Practice** jumps straight in at that line. Progress (ticked lines, best speed per line, minutes a day) is kept with the lesson's tab, so it's synced to the account (no SQL change needed). **Listening at the video's speeds**: it plays half a bar (a whole bar when half is too quick), stops, and you play it back while it's quiet (no earphones needed); notes turn green as it hears them; tap the note card to skip one. **Metronome** under the tuner: −/+, slider, Tap, 2/4 3/4 4/4 6/8 with the first beat louder, dots that follow the beat, remembered
+
 **v0.9 – Listen to me**
 
 - v0.9.2: at 0.75× and 1× Practice no longer lets ~2 notes of the next line through: the stop is asked 0.6 s (real time) before the next line's first note, as the player takes about that long to go quiet

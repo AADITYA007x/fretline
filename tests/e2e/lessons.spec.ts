@@ -359,7 +359,7 @@ test.describe("reading tab from the video", () => {
       for (let i = 0; i < 18; i++) notes.push(n(2 + i * 0.4, 1 + (i % 3), i % 4));
       notes.push(n(10, 4, 2), n(10, 3, 0), n(10.5, 2, 3), n(10.8, 2, 5, { tech: "slide" }));
       const screen = { at: 1, v: 99, notes, pages: [{ start: 1.5, end: 12, notes: notes.length }], chords: [{ t: 2, name: "Am" }] };
-      localStorage.setItem("fretline:fixes:2Lq784V-KPw", JSON.stringify({ edits: {}, added: [], updatedAt: 1, screen }));
+      if (!localStorage.getItem("fretline:fixes:2Lq784V-KPw")) localStorage.setItem("fretline:fixes:2Lq784V-KPw", JSON.stringify({ edits: {}, added: [], updatedAt: 1, screen }));
     });
     await page.goto("/");
     await page.click('.tab[data-view="lessons"]');
@@ -503,6 +503,46 @@ test.describe("reading tab from the video", () => {
     await page.evaluate(() => (window as any).__mic.set(392));
     await expect(page.locator("#pr-line .nb-cell.heard")).toHaveCount(1, { timeout: 4000 });
     await expect(page.locator("#pr-line .nb-cell.missed").first()).toBeAttached({ timeout: 8000 });
+    // at 0.5× (the video's sound): it plays the part, stops, and you play it back
+    await page.click("#pr-play");
+    await page.click('.pr-seg[data-opt="start"] button[data-v="0.5"]');
+    await expect(page.locator("#pr-stage")).toContainText("then you");
+    await page.click("#pr-play");
+    await expect(page.locator("#pr-wait")).toContainText("Listen", { timeout: 3000 });
+    expect(await page.evaluate(() => (window as any).__yt.rate)).toBe(0.5);
+    await expect(page.locator("#pr-wait")).toContainText("Your turn: play those 3 notes", { timeout: 10_000 });
+    expect(await page.evaluate(() => (window as any).__yt.state)).toBe(2);
+    for (const f of [392, 261.63, 220]) {
+      await page.evaluate((x) => (window as any).__mic.set(x), f);
+      await page.waitForTimeout(700);
+    }
+    await expect(page.locator(".toast")).toContainText("heard 3 of 3", { timeout: 5000 });
+  });
+
+  test("Practice list on the lessons page: next line, progress, best speed; Practice opens there", async ({ page }) => {
+    await fakeSupabase(page);
+    await page.addInitScript(() => {
+      const n = (t: number, string: number, fret: number) => ({ id: `v${Math.round(t * 100)}-${string}`, t, string, fret, source: "screen" });
+      const notes = [] as object[];
+      for (let i = 0; i < 30; i++) notes.push(n(2 + i * 0.3, 1 + (i % 3), i % 4));
+      const d = new Date();
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      const progress = { done: [1], best: { "2": 0.75 }, days: { [key]: 600 }, last: { line: 2, at: Date.now() } };
+      const screen = { at: 1, v: 99, notes, pages: [{ start: 1.5, end: 12, notes: 30 }] };
+      localStorage.setItem("fretline:fixes:2Lq784V-KPw", JSON.stringify({ edits: {}, added: [], updatedAt: 1, screen, progress }));
+    });
+    await page.goto("/");
+    await page.click('.tab[data-view="lessons"]');
+    await page.fill("#lesson-link", "2Lq784V-KPw");
+    await page.click('#add-lesson-form button[type="submit"]');
+    await page.waitForFunction(() => (window as any).__yt);
+    await page.click("#lesson-back");
+    await expect(page.locator("#today")).toBeVisible();
+    await expect(page.locator("#today-stats")).toContainText("1 day in a row · 10 min today");
+    await expect(page.locator(".today-row .muted")).toContainText("line 2 of 4 · 1 done · best here 0.75×");
+    await page.click(".today-go");
+    await expect(page.locator("#practice")).toBeVisible();
+    await expect(page.locator("#pr-from")).toHaveValue("2");
   });
 
   test("the tape stays where you scroll it, until Back to now", async ({ page }) => {

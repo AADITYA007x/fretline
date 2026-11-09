@@ -28,7 +28,7 @@ test("locked until signed in", async ({ page }, info) => {
 
   await page.click("#menu-btn");
   await expect(page.locator("#menu-name")).toHaveText("Aaditya");
-  await expect(page.locator("#app-version")).toContainText("Version 0.");
+  await expect(page.locator("#app-version")).toContainText(/Version \d+\./);
   await shot(page, "02-menu", info.project.name);
 
   page.once("dialog", (d) => d.accept());
@@ -231,4 +231,25 @@ test("no update banner when already up to date", async ({ page }, info) => {
   await page.goto("/");
   await page.waitForTimeout(6000);
   await expect(page.locator("#update-banner")).toBeHidden();
+});
+
+test("metronome under the tuner: beats a minute, beats in a bar, dots follow the beat", async ({ page }, info) => {
+  await fakeSupabase(page);
+  await signedIn(page);
+  await page.goto("/");
+  await page.click("#metro-up");
+  await expect(page.locator("#metro-bpm")).toHaveText("91");
+  await page.click('#metro-beats button[data-v="3"]');
+  await expect(page.locator("#metro-dots i")).toHaveCount(3);
+  await page.locator("#metro-slider").fill("180");
+  await expect(page.locator("#metro-bpm")).toHaveText("180");
+  await page.click("#metro-go");
+  await expect(page.locator("#metro-go")).toHaveText("Stop");
+  await expect(page.locator("#metro-dots i.on")).toHaveCount(1, { timeout: 3000 });
+  await page.locator(".metro").scrollIntoViewIfNeeded();
+  await shot(page, "35-metronome", info.project.name);
+  await page.click("#metro-go");
+  await expect(page.locator("#metro-dots i.on")).toHaveCount(0);
+  await page.reload();
+  await expect(page.locator("#metro-bpm")).toHaveText("180");
 });

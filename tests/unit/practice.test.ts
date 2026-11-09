@@ -73,3 +73,16 @@ describe("fingers", () => {
     expect(suggestFingers([{ string: 6, fret: 0, tech: "mute" }, { string: 3, fret: 5 }])).toEqual([null, 1]);
   });
 });
+
+import { streak, today } from "../../src/practice/progress";
+
+describe("practice days", () => {
+  it("days in a row with at least a minute (today or up to yesterday)", () => {
+    const now = new Date(2026, 10, 9, 20, 0);
+    const d = (offset: number) => today(new Date(2026, 10, 9 - offset));
+    expect(streak({ [d(0)]: 300, [d(1)]: 120, [d(2)]: 90, [d(4)]: 600 }, now)).toBe(3);
+    // not yet today: the run up to yesterday still counts
+    expect(streak({ [d(1)]: 120, [d(2)]: 90 }, now)).toBe(2);
+    expect(streak({ [d(0)]: 30 }, now)).toBe(0);
+  });
+});

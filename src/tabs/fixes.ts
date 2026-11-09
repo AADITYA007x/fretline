@@ -12,7 +12,10 @@ export function getFixes(videoId: string): Fixes {
 }
 
 export function saveFixes(videoId: string, fixes: Fixes): void {
-  storage.set(KEY(videoId), { ...fixes, updatedAt: Date.now() });
+  // practice progress has its own writer (saveProgress); a tab edit made
+  // from an older copy must not undo it
+  const progress = storage.get<Fixes | null>(KEY(videoId), null)?.progress;
+  storage.set(KEY(videoId), { ...fixes, progress, updatedAt: Date.now() });
   const index = new Set(storage.get<string[]>(INDEX, []));
   index.add(videoId);
   storage.set(INDEX, [...index]);
@@ -38,4 +41,14 @@ export function mergeRemoteFixes(videoId: string, remote: Fixes): boolean {
   index.add(videoId);
   storage.set(INDEX, [...index]);
   return true;
+}
+
+/** Save practice progress (kept with the lesson's tab, so it syncs too). */
+export function saveProgress(videoId: string, progress: import("./tab").Progress): void {
+  const f = getFixes(videoId);
+  storage.set(KEY(videoId), { ...f, progress, updatedAt: Date.now() });
+  const index = new Set(storage.get<string[]>(INDEX, []));
+  index.add(videoId);
+  storage.set(INDEX, [...index]);
+  bus.emit("localchange", { kind: "fixes", id: videoId });
 }

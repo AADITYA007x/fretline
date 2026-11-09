@@ -3,7 +3,8 @@
 // held shape; roll = a strummed chord; 5→7 = slide; pull; ‖ ‖ = hammer-on;
 // ✋ = slap.
 // 8–10 notes per line, each line numbered so you can tick off a few a day.
-import { escapeHtml, storage } from "../utils";
+import { escapeHtml } from "../utils";
+import { getProgress, setLineDone } from "../practice/progress";
 import type { TabNote } from "./tab";
 
 export interface Cell {
@@ -169,20 +170,12 @@ export function notebookLines(notes: TabNote[], chords: { t: number; name: strin
 
 // --- Lines done (your progress), per lesson ------------------------------------
 
-const DONE = (id: string) => `fretline:notebook-done:${id}`;
-
 export function doneLines(videoId: string): number[] {
-  const v = storage.get<number[]>(DONE(videoId), []);
-  return Array.isArray(v) ? v.filter((x) => typeof x === "number") : [];
+  return getProgress(videoId).done;
 }
 
 export function setDone(videoId: string, line: number, done: boolean): number[] {
-  const set = new Set(doneLines(videoId));
-  if (done) set.add(line);
-  else set.delete(line);
-  const list = [...set].sort((a, b) => a - b);
-  storage.set(DONE(videoId), list);
-  return list;
+  return setLineDone(videoId, line, done);
 }
 
 // --- Writing it out ------------------------------------------------------------

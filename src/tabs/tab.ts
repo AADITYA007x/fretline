@@ -27,6 +27,19 @@ export interface Fixes {
   updatedAt: number;
   /** Tab read from the video itself (see src/scan). */
   screen?: ScreenTab;
+  /** Your practice on this lesson (see src/practice/progress.ts). */
+  progress?: Progress;
+}
+
+export interface Progress {
+  /** My notes lines you've ticked. */
+  done: number[];
+  /** Best speed reached per line (0 = 1 by 1). */
+  best: Record<string, number>;
+  /** Seconds practised per day ("2026-11-09"). */
+  days: Record<string, number>;
+  /** Where you were last. */
+  last?: { line: number; at: number };
 }
 
 export interface ScreenTab {
