@@ -267,7 +267,8 @@ async function startPass(): Promise<void> {
     ctl.setRate(r);
     const from = Math.max(0, t0 - 0.6 * r);
     const last = cols[cols.length - 1].t;
-    const stopAt = after ? Math.max(last + 0.08, after.t - 0.25 * r) : last + 0.5;
+    // the player takes ~half a second (real time) to go quiet, so ask early
+    const stopAt = after ? Math.max(last + 0.08, after.t - 0.6 * r) : last + 0.5;
     ctl.seek(from);
     ctl.play();
     pass = { kind: "video", lastT: from, ac: clickOn ? await audio() : null, t0, stopAt, heard: false, hit: new Set() };
