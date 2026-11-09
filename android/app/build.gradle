@@ -71,7 +71,7 @@ dependencies {
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     // Reads YouTube lesson details and captions without an API key. Same
     // commit Groov uses; the weekly workflow proposes updates.
-    implementation "com.github.TeamNewPipe:NewPipeExtractor:e8f89145a830b4d6cae32412007f24ea8b36c73a"
+    implementation "com.github.TeamNewPipe:NewPipeExtractor:v0.27.0"
     coreLibraryDesugaring "com.android.tools:desugar_jdk_libs_nio:2.1.5"
     // Reads tab digits in lesson videos, on the phone (free, offline)
     implementation "com.google.mlkit:text-recognition:16.0.1"
