@@ -179,6 +179,7 @@ function onLevel(level: number): void {
   const pct = level <= 0 ? 0 : Math.max(0, Math.min(100, ((Math.log10(level) + 3.3) / 2.8) * 100));
   $("level-fill").style.width = `${pct.toFixed(0)}%`;
   const now = performance.now();
+  picker.hear(level);
   if (level > 0.004) lastHeard = now;
   const quiet = engine.isListening() && now - Math.max(lastHeard, listenStarted) > 5000;
   $("mic-quiet").hidden = !quiet || mode === "tone";
@@ -230,7 +231,7 @@ function onReading(r: engine.Reading | null): void {
     return;
   }
   const a4 = getA4();
-  const i = mode === "manual" ? picked : picker.pick(r.freq, tuning, a4, r.level, performance.now());
+  const i = mode === "manual" ? picked : picker.pick(r.freq, tuning, a4, r.level);
   // another string just ringing along while yours dies away: keep showing yours
   if (i < 0) return;
   const target = stringFreq(i);

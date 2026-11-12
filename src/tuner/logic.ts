@@ -37,35 +37,49 @@ export function related(f1: number, f2: number): boolean {
 }
 
 /**
- * Auto mode's choice of string. The string is chosen when you pluck (the
- * attack); while that note dies away, other open strings ringing along
- * (the high e sets A, low E and B humming) can't take over: their readings
- * are ignored until you pluck again. Otherwise three readings in a row must
- * agree before it changes, so one odd reading can't flip it.
+ * Auto mode's choice of string. Three readings in a row must agree before
+ * it changes, so one odd reading can't flip it.
+ *
+ * While a note dies away, other open strings ring along with it (the high
+ * e sets A, low E and B humming) and end up louder than what's left of it.
+ * Those readings are much quieter than the pluck was and come from a string
+ * related to it: they're ignored, and the display keeps your string. A
+ * string you actually pluck is as loud as a pluck (or starts with a jump in
+ * level), so it still takes over.
  */
 export class StringPicker {
   private current = -1;
   private candidate = -1;
   private count = 0;
-  private lastLevel = 0;
-  private attackAt = -1e9;
+  private recent: number[] = [];
+  private rising = false;
+  /** The loudest the current string has been since the last pluck. */
+  private peak = 0;
+
+  /** Every mic frame (silence too): how loud it is, so a new pluck is noticed. */
+  hear(level: number): void {
+    const floor = this.recent.length ? Math.min(...this.recent) : 0;
+    // a new pluck: whatever comes next is measured against it, not the last one
+    const rising = level > 0.008 && level > floor * 1.6;
+    if (rising && !this.rising) this.peak = 0;
+    this.rising = rising;
+    this.recent.push(level);
+    if (this.recent.length > 3) this.recent.shift();
+  }
 
   /** The string, or -1 to ignore this reading (a string ringing along). */
-  pick(freq: number, t: Tuning, a4: number, level = 0, now = 0): number {
-    if (level > 0.008 && level > this.lastLevel * 1.6) this.attackAt = now;
-    this.lastLevel = level;
+  pick(freq: number, t: Tuning, a4: number, level = 0): number {
     const n = nearestString(freq, t, a4);
-    const attack = now - this.attackAt < 350;
-    if (this.current < 0 || n === this.current || (attack && level > 0)) {
+    if (this.current < 0 || n === this.current) {
       this.current = n;
       this.candidate = -1;
       this.count = 0;
+      this.peak = Math.max(this.peak, level);
       return n;
     }
-    if (level > 0) {
+    if (level > 0 && level < this.peak * 0.5) {
       const fc = midiToFreq(noteToMidi(t.strings[this.current]), a4);
       const fn = midiToFreq(noteToMidi(t.strings[n]), a4);
-      // dying away: a related open string is just ringing along
       if (related(fc, fn)) return -1;
     }
     if (n === this.candidate) {
@@ -73,6 +87,7 @@ export class StringPicker {
         this.current = n;
         this.candidate = -1;
         this.count = 0;
+        this.peak = level;
       }
     } else {
       this.candidate = n;
@@ -85,6 +100,6 @@ export class StringPicker {
     this.current = -1;
     this.candidate = -1;
     this.count = 0;
-    this.lastLevel = 0;
+    this.peak = 0;
   }
 }

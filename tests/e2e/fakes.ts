@@ -182,16 +182,39 @@ export async function fakeYouTube(page: Page, opts: { blocked?: string[] } = {})
               o.events.onReady && o.events.onReady();
               if (BLOCKED.includes(o.videoId)) o.events.onError && o.events.onError({ data: 150 });
             }, 30);
+            // (by the clock, so a busy machine can't slow the video down)
+            let last = Date.now();
             this.timer = setInterval(() => {
-              if (this.state === 1) { this.t += 0.1 * this.rate; if (this.t >= this.dur) { this.t = this.dur; this.set(0); } }
+              const now = Date.now();
+              if (this.state === 1) { this.t += ((now - last) / 1000) * this.rate; if (this.t >= this.dur) { this.t = this.dur; this.set(0); } }
+              last = now;
               this.box.textContent = "video " + o.videoId + " @ " + this.t.toFixed(1);
-            }, 100);
+            }, 20);
           }
           set(s) { this.state = s; this.o.events.onStateChange && this.o.events.onStateChange({ data: s }); }
-          playVideo() { this.set(1); }
-          pauseVideo() { this.set(2); }
-          seekTo(s) { this.t = Math.max(0, Math.min(this.dur, s)); }
-          getCurrentTime() { return this.t; }
+          // window.__ytLag = { seek, pause, clock } (ms) makes it slow like the real
+          // player: a jump or a pause lands late, and its clock is only told now and then.
+          lag(k) { return (window.__ytLag && window.__ytLag[k]) || 0; }
+          playVideo() { clearTimeout(this.pausing); this.set(1); }
+          pauseVideo() {
+            const ms = this.lag("pause");
+            if (!ms) return this.set(2);
+            clearTimeout(this.pausing);
+            this.pausing = setTimeout(() => { this.set(2); (this.stops = this.stops || []).push(this.t); }, ms);
+          }
+          seekTo(s) {
+            const to = Math.max(0, Math.min(this.dur, s));
+            const ms = this.lag("seek");
+            if (!ms) { this.t = to; return; }
+            setTimeout(() => { this.t = to; }, ms);
+          }
+          getCurrentTime() {
+            const ms = this.lag("clock");
+            if (!ms) return this.t;
+            const now = Date.now();
+            if (this.toldAt === undefined || now - this.toldAt >= ms) { this.toldAt = now; this.told = this.t; }
+            return this.told;
+          }
           getDuration() { return this.dur; }
           getPlayerState() { return this.state; }
           setPlaybackRate(r) { this.rate = r; }

@@ -494,19 +494,36 @@ test.describe("reading tab from the video", () => {
     await page.waitForTimeout(300);
     await page.evaluate(() => (window as any).__mic.set(220));
     await expect(page.locator(".toast")).toContainText("1 of 3 right first time", { timeout: 4000 });
-    // at 0.25× you play (Fretline keeps quiet) and the line shows live what it heard
+    // at 0.25× it's the same game with Fretline's own pluck: it plays the bit, goes quiet, you play it back
     await page.click("#pr-play");
     await page.click('.pr-seg[data-opt="start"] button[data-v="0.25"]');
     await expect(page.locator(".pr-rung.now")).toHaveText("0.25×");
-    await expect(page.locator("#pr-stage")).toContainText("you play");
+    await expect(page.locator("#pr-stage")).toContainText("Fretline's pluck plays a bit, then you");
+    await page.evaluate(() => {
+      const w = window as any;
+      w.__plucks = 0;
+      const orig = AudioBufferSourceNode.prototype.start;
+      AudioBufferSourceNode.prototype.start = function (...a: any[]) {
+        w.__plucks++;
+        return orig.apply(this, a as any);
+      };
+    });
     await page.click("#pr-play");
+    await expect(page.locator("#pr-wait")).toContainText("Listen", { timeout: 3000 });
+    // its three notes are played (the fake mic's room noise is one more sound source)
+    await expect.poll(() => page.evaluate(() => (window as any).__plucks)).toBeGreaterThanOrEqual(3);
+    expect(await page.evaluate(() => (window as any).__yt.state)).not.toBe(1); // the video stays out of it
+    await expect(page.locator("#pr-wait")).toContainText("Your turn: play those 3 notes", { timeout: 10_000 });
     await page.evaluate(() => (window as any).__mic.set(392));
     await expect(page.locator("#pr-line .nb-cell.heard")).toHaveCount(1, { timeout: 4000 });
-    await expect(page.locator("#pr-line .nb-cell.missed").first()).toBeAttached({ timeout: 8000 });
+    await expect(page.locator("#pr-wait")).toContainText("Keep going: 2 more");
+    // you stop playing: after a few seconds it moves on, the rest marked missed
+    await page.evaluate(() => (window as any).__mic.set(0));
+    await expect(page.locator(".toast")).toContainText("heard 1 of 3", { timeout: 8000 });
     // at 0.5× (the video's sound): it plays the part, stops, and you play it back
     await page.click("#pr-play");
     await page.click('.pr-seg[data-opt="start"] button[data-v="0.5"]');
-    await expect(page.locator("#pr-stage")).toContainText("then you");
+    await expect(page.locator("#pr-stage")).toContainText("video sound plays a bit, then you");
     await page.click("#pr-play");
     await expect(page.locator("#pr-wait")).toContainText("Listen", { timeout: 3000 });
     expect(await page.evaluate(() => (window as any).__yt.rate)).toBe(0.5);
@@ -517,6 +534,84 @@ test.describe("reading tab from the video", () => {
       await page.waitForTimeout(700);
     }
     await expect(page.locator(".toast")).toContainText("heard 3 of 3", { timeout: 5000 });
+  });
+
+  test("Practice, Listen to me: one ringing note doesn't count for the same note played again", async ({ page }) => {
+    await fakeSupabase(page);
+    await fakeMic(page);
+    await page.addInitScript(() => {
+      const n = (t: number, string: number, fret: number) => ({ id: `v${Math.round(t * 100)}-${string}`, t, string, fret, source: "screen" });
+      // a player that's slow like the real one: jumps and pauses land late, a coarse clock
+      (window as any).__ytLag = { seek: 300, pause: 500, clock: 250 };
+      // G string fret 2 (A3, 220 Hz) three times
+      const notes = [n(2, 3, 2), n(2.5, 3, 2), n(3, 3, 2)];
+      const screen = { at: 1, v: 99, notes, pages: [{ start: 1.5, end: 6, notes: 3 }], capo: 0 };
+      localStorage.setItem("fretline:fixes:2Lq784V-KPw", JSON.stringify({ edits: {}, added: [], updatedAt: 1, screen }));
+      localStorage.setItem("fretline:practice-listen", "true");
+      localStorage.setItem("fretline:practice", JSON.stringify({ start: 0.5, goal: 1, pace: "normal", sound: "auto" }));
+    });
+    await page.goto("/");
+    await page.click('.tab[data-view="lessons"]');
+    await page.fill("#lesson-link", "2Lq784V-KPw");
+    await page.click('#add-lesson-form button[type="submit"]');
+    await page.waitForFunction(() => (window as any).__yt);
+    await page.click("#strip-practice");
+    await page.click("#pr-play");
+    // it plays the bit from the video first (sound on from the first note), and only then is it your turn
+    await expect(page.locator("#pr-wait")).toContainText("Listen", { timeout: 3000 });
+    await expect.poll(() => page.evaluate(() => (window as any).__yt.muted), { timeout: 5000 }).toBe(false);
+    await expect(page.locator("#pr-wait")).toContainText("Your turn: play those 3 notes", { timeout: 12_000 });
+    expect(await page.evaluate(() => (window as any).__yt.state)).toBe(2);
+    expect(await page.evaluate(() => (window as any).__yt.t)).toBeGreaterThan(3.0); // all three notes were played to you
+    // one pluck, left ringing: one note heard, not three
+    await page.evaluate(() => (window as any).__mic.set(220));
+    await expect(page.locator("#pr-wait")).toContainText("Keep going: 2 more", { timeout: 3000 });
+    await page.waitForTimeout(1200);
+    await expect(page.locator("#pr-line .nb-cell.heard")).toHaveCount(1);
+    // plucked again: the second one
+    await page.evaluate(() => (window as any).__mic.set(0));
+    await page.waitForTimeout(250);
+    await page.evaluate(() => (window as any).__mic.set(220));
+    await expect(page.locator("#pr-wait")).toContainText("Keep going: 1 more", { timeout: 3000 });
+  });
+
+  test("Practice with a slow player (like the real one): rounds aren't skipped, and the stop is learned", async ({ page }) => {
+    test.setTimeout(70_000);
+    await fakeSupabase(page);
+    await page.addInitScript(() => {
+      // a jump lands 300 ms late, a pause 900 ms late, the clock is told 4 times a second
+      (window as any).__ytLag = { seek: 300, pause: 900, clock: 250 };
+      const n = (t: number, string: number, fret: number) => ({ id: `v${Math.round(t * 100)}-${string}`, t, string, fret, source: "screen" });
+      const notes = [] as object[];
+      for (let i = 0; i < 24; i++) notes.push(n(2 + i * 0.25, 1 + (i % 3), [3, 2, 0, 1][i % 4]));
+      const screen = { at: 1, v: 99, notes, pages: [{ start: 1.5, end: 12, notes: notes.length }], capo: 0 };
+      localStorage.setItem("fretline:fixes:2Lq784V-KPw", JSON.stringify({ edits: {}, added: [], updatedAt: 1, screen }));
+      localStorage.setItem("fretline:practice", JSON.stringify({ start: 0.5, goal: 1, pace: "slow", sound: "auto" }));
+    });
+    await page.goto("/");
+    await page.click('.tab[data-view="lessons"]');
+    await page.fill("#lesson-link", "2Lq784V-KPw");
+    await page.click('#add-lesson-form button[type="submit"]');
+    await page.waitForFunction(() => (window as any).__yt);
+    await page.click("#strip-practice");
+    await page.click("#pr-up");
+    await page.click("#pr-up");
+    await expect(page.locator(".pr-rung.now")).toHaveText("1×");
+    await page.click("#pr-play");
+    // line 1 is 2.0–3.75 s and the next line starts at 4.0 s. A round takes
+    // ~5 s here (jump, run-up, the line, the stop landing, the gap): after 7 s
+    // it's in its second round, not rushed through several
+    await page.waitForTimeout(7000);
+    expect(await page.locator("#pr-stage").textContent()).toContain("round 2 of 4");
+    expect(await page.evaluate(() => ((window as any).__yt.stops ?? []).length)).toBe(1);
+    // the first stop came late (the next line's first note was heard); it learns
+    await expect.poll(() => page.evaluate(() => ((window as any).__yt.stops ?? []).length), { timeout: 40_000 }).toBeGreaterThanOrEqual(4);
+    const stops = await page.evaluate(() => (window as any).__yt.stops as number[]);
+    expect(stops[0]).toBeGreaterThan(4.0);
+    for (const k of [1, 2, 3]) {
+      expect(stops[k]).toBeLessThanOrEqual(4.0);
+      expect(stops[k]).toBeGreaterThan(3.75); // the line's own last note still sounds
+    }
   });
 
   test("Practice list on the lessons page: next line, progress, best speed; Practice opens there", async ({ page }) => {

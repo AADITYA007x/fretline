@@ -70,6 +70,9 @@ export interface PlayerEvents {
 export class LessonPlayer {
   private player: YTPlayer | null = null;
   private ready: Promise<YTPlayer> | null = null;
+  private rate = 1;
+  private lastRaw = -1;
+  private rawAt = 0;
 
   constructor(
     private host: HTMLElement,
@@ -134,11 +137,28 @@ export class LessonPlayer {
   }
 
   setRate(rate: number): void {
+    this.rate = rate;
     void this.with((p) => p.setPlaybackRate(rate));
   }
 
   time(): number {
     return this.player?.getCurrentTime() ?? 0;
+  }
+
+  /**
+   * The time, carried forward between the player's own updates: its clock
+   * is only told a few times a second, which is too coarse for stopping on
+   * a note. While it plays, the time since the last update is added on.
+   */
+  smoothTime(): number {
+    const raw = this.time();
+    const now = performance.now();
+    if (raw !== this.lastRaw) {
+      this.lastRaw = raw;
+      this.rawAt = now;
+    }
+    if (this.player?.getPlayerState() !== STATE.PLAYING) return raw;
+    return raw + Math.min(0.5, (now - this.rawAt) / 1000) * this.rate;
   }
 
   duration(): number {

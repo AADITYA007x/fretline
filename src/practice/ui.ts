@@ -39,7 +39,7 @@ const OPTS_KEY = "fretline:practice";
 const BEAT_KEY = (id: string) => `fretline:beat:${id}`;
 /** Seconds on each note in 1 by 1 (you choose 2, 3 or 4). */
 let stepSeconds = [2, 3, 4].includes(storage.get<number>("fretline:practice-gap", 3)) ? storage.get<number>("fretline:practice-gap", 3) : 3;
-const GAP_MS = 900;
+const GAP_MS = 700;
 
 let ctl: PracticeControls | null = null;
 let videoId: string | null = null;
@@ -65,29 +65,67 @@ let listenOn = storage.get<boolean>("fretline:practice-listen", false) === true;
 let micOurs = false;
 
 type Pass =
-  | { kind: "pluck"; times: number[]; end: number; ac: AudioContext; base: number; rate: number; t0: number; hit: Set<number> }
-  | { kind: "video"; lastT: number; ac: AudioContext | null; t0: number; stopAt: number; heard: boolean; hit: Set<number> }
+  | { kind: "pluck"; times: number[]; end: number; ac: AudioContext }
+  | { kind: "video"; lastT: number; ac: AudioContext | null; t0: number; stopAt: number; heard: boolean; landing: Landing | null; stopping: boolean }
   | Wait
   | Echo;
 
 /**
- * Listening at the video's speeds: it plays half a bar, stops, and you play
- * it back (no earphones needed: it's quiet while you play); then the next.
+ * Listening, at any speed above 1 by 1: it plays a bit (half a bar or so:
+ * Fretline's pluck at the slow speeds, the video at its own), goes quiet,
+ * and you play it back; then the next bit. Always the same, so you always
+ * know whose turn it is, and it never hears itself.
  */
 interface Echo {
   kind: "echo";
+  sound: "pluck" | "video";
   rate: number;
   chunks: { from: number; to: number }[];
   ci: number;
   phase: "play" | "stopping" | "you" | "next";
+  /** Video: where to stop, whether the sound is on yet, the jump still landing. */
   stopAt: number;
   unmuted: boolean;
+  landing: Landing | null;
+  /** Pluck: the sound clock, when each note of this bit sounds, when it's over. */
+  ac: AudioContext | null;
+  times: number[];
+  playEnd: number;
   /** Your turn: listening from, last progress, the note expected next. */
   youFrom: number;
   lastHitAt: number;
   j: number;
-  lastLevel: number;
   hit: Set<number>;
+  /** The quietest it's been since the last note heard (a new pluck rises from it). */
+  quietest: number;
+}
+
+/** The same strings and frets (so one ringing note can't count twice). */
+function sameNotes(a: Col, b: Col): boolean {
+  const key = (c: Col) => c.notes.map((n) => `${n.string}:${n.fret}:${n.tech === "mute" ? "x" : ""}`).sort().join(",");
+  return key(a) === key(b);
+}
+
+/**
+ * After a jump, the player's clock still shows the old place for a moment.
+ * Nothing is decided from it until it has moved the way the jump went.
+ */
+interface Landing {
+  stale: number;
+  target: number;
+  at: number;
+}
+
+function jumpTo(target: number): Landing {
+  const l = { stale: ctl?.time() ?? 0, target, at: performance.now() };
+  ctl?.seek(target);
+  return l;
+}
+
+function hasLanded(t: number, l: Landing): boolean {
+  if (performance.now() - l.at > 1500) return true;
+  if (Math.abs(l.target - l.stale) < 0.05) return true;
+  return l.target < l.stale ? t < l.stale - 0.03 : t >= l.target - 0.05;
 }
 
 /** 1 by 1, waiting for you: shows (and plucks) a note, then listens. */
@@ -152,8 +190,8 @@ function renderLadder(): void {
     .map((s, i) => `<span class="pr-rung${i === stageIdx ? " now" : i < stageIdx ? " done" : ""}">${stageLabel(s)}</span>`)
     .join("");
   const s = stage();
-  const sound =
-    s.sound === "pluck" ? (listenOn && s.speed !== "step" ? "you play (click only)" : "Fretline's pluck") : listenOn ? "video plays half a bar, then you" : "video sound";
+  const who = s.sound === "pluck" ? "Fretline's pluck" : "video sound";
+  const sound = !listenOn ? who : s.speed === "step" ? `${who}, then waits for you` : `${who} plays a bit, then you`;
   $("pr-stage").textContent = `Step ${stageIdx + 1} of ${stages.length} · ${stageLabel(s)} · ${sound} · round ${Math.min(loopIdx + 1, s.loops)} of ${s.loops}${stageIdx === stages.length - 1 ? " (goal: keeps going)" : ""}${listenOn && lastScore ? ` · last round: ${lastScore}` : ""}`;
 }
 
@@ -256,14 +294,25 @@ async function startPass(): Promise<void> {
   const t1 = cols[cols.length - 1].t;
   renderLadder();
   if (listenOn) await ensureMic();
-  if (s.speed === "step" && listenOn && mic.isListening()) {
+  if (!running) return;
+  const listening = listenOn && mic.isListening();
+  if (listening && s.speed === "step") {
     ctl.pause();
     ctl.mute(true);
     pass = { kind: "wait", i: -1, listenFrom: 0, firstTry: true, good: 0, okFrames: 0, lastLevel: 0, onsetAt: 0, doneAt: 0, said: "" };
     nextWait();
-    return;
-  }
-  if (s.sound === "pluck") {
+  } else if (listening && s.speed !== "step") {
+    const r = s.speed;
+    let ac: AudioContext | null = null;
+    if (s.sound === "pluck") {
+      ctl.pause();
+      ctl.mute(true);
+      ac = await audio();
+      if (!running) return;
+    } else ctl.setRate(r);
+    pass = { kind: "echo", sound: s.sound, rate: r, chunks: chunksOf(r), ci: -1, phase: "next", stopAt: 0, unmuted: false, landing: null, ac, times: [], playEnd: 0, youFrom: 0, lastHitAt: 0, j: 0, hit: new Set(), quietest: Infinity };
+    nextChunk();
+  } else if (s.sound === "pluck") {
     ctl.pause();
     ctl.mute(true);
     const ac = await audio();
@@ -271,23 +320,13 @@ async function startPass(): Promise<void> {
     const base = ac.currentTime + 0.3;
     const capo = currentCapo();
     const times = cols.map((c, i) => base + (s.speed === "step" ? i * stepSeconds : (c.t - t0) / s.speed));
-    // listening: you play and Fretline keeps quiet (only the click), so the
-    // mic hears you, not the app
-    const youPlay = listenOn && s.speed !== "step";
-    if (!youPlay) cols.forEach((c, i) => scheduleColumn(ac, c.notes, capo, times[i]));
-    // no beat known: a soft tick on each note instead
-    else if (!beat) times.forEach((t) => scheduleClick(ac, t, false, 0.35));
-    if ((clickOn || youPlay) && beat && s.speed !== "step") {
+    cols.forEach((c, i) => scheduleColumn(ac, c.notes, capo, times[i]));
+    if (clickOn && beat && s.speed !== "step") {
       const r = s.speed;
       for (const b of beatsBetween(beat, t0 - 0.01, t1 + 0.5)) scheduleClick(ac, base + (b - t0) / r, isBar(b));
     }
     const end = times[times.length - 1] + (s.speed === "step" ? stepSeconds : 1.2);
-    pass = { kind: "pluck", times, end, ac, base, rate: s.speed === "step" ? 0 : s.speed, t0, hit: new Set() };
-  } else if (listenOn) {
-    const r = s.speed === "step" ? 0.5 : s.speed;
-    ctl.setRate(r);
-    pass = { kind: "echo", rate: r, chunks: chunksOf(r), ci: -1, phase: "next", stopAt: 0, unmuted: false, youFrom: 0, lastHitAt: 0, j: 0, lastLevel: 0, hit: new Set() };
-    nextChunk();
+    pass = { kind: "pluck", times, end, ac };
   } else {
     const r = s.speed === "step" ? 0.5 : s.speed;
     // a short silent run-up (muted until the first note, so the notes
@@ -295,12 +334,10 @@ async function startPass(): Promise<void> {
     ctl.mute(true);
     ctl.setRate(r);
     const from = Math.max(0, t0 - 0.6 * r);
-    const last = cols[cols.length - 1].t;
-    // the player takes ~half a second (real time) to go quiet, so ask early
-    const stopAt = stopPoint(last, after?.t, r, t0);
-    ctl.seek(from);
+    const stopAt = stopPoint(t1, after?.t, r, t0);
+    const landing = jumpTo(from);
     ctl.play();
-    pass = { kind: "video", lastT: from, ac: clickOn ? await audio() : null, t0, stopAt, heard: false, hit: new Set() };
+    pass = { kind: "video", lastT: from, ac: clickOn ? await audio() : null, t0, stopAt, heard: false, landing, stopping: false };
   }
 }
 
@@ -337,7 +374,7 @@ function finishPass(): void {
   }
   if (listenOn && done) {
     if (done.kind === "wait") lastScore = `${done.good} of ${cols.length} right first time`;
-    else if (done.kind === "video" || done.kind === "echo" || (done.kind === "pluck" && done.rate > 0)) lastScore = `heard ${done.hit.size} of ${cols.length} notes`;
+    else if (done.kind === "echo") lastScore = `heard ${done.hit.size} of ${cols.length} notes`;
     if (lastScore) bus.emit("toast", `Round done: ${lastScore}`);
   }
   loopIdx++;
@@ -373,47 +410,19 @@ function tick(): void {
     idx = Math.max(0, Math.min(cols.length - 1, pass.i));
     renderWait(pass);
   } else if (pass?.kind === "echo") {
-    const e = pass;
-    marks.hit = e.hit;
-    const c = e.chunks[e.ci];
-    if (e.phase === "play" && c) {
-      const t = ctl.time();
-      for (let i = c.from; i <= c.to; i++) if (cols[i].t <= t + 0.02) idx = i;
-      if (!e.unmuted && t >= cols[c.from].t - 0.06) {
-        e.unmuted = true;
-        ctl.mute(false);
-      }
-      if (t >= e.stopAt) {
-        e.phase = "stopping";
-        // listen only once the video has really gone quiet (and a moment more)
-        askStop(t, e.rate, () => {
-          if (pass !== e) return;
-          e.phase = "you";
-          e.youFrom = performance.now() + 250;
-          e.lastHitAt = 0;
-        });
-      }
-    } else if (e.phase === "you" && c) {
-      idx = Math.min(c.to, c.from + e.j);
-      const quiet = performance.now() - Math.max(e.youFrom, e.lastHitAt);
-      if (quiet > 3000) echoTurnOver(e);
-    } else if (c) idx = c.to;
-    renderEcho(e);
+    idx = tickEcho(pass);
   } else if (pass?.kind === "pluck") {
     const now = pass.ac.currentTime;
     for (let i = 0; i < pass.times.length; i++) if (pass.times[i] <= now + 0.02) idx = i;
-    if (listenOn && pass.rate) {
-      marks.hit = pass.hit;
-      updateMissed(pass.t0 + (now - pass.base) * pass.rate, pass.rate, pass.hit);
-    }
     if (now >= pass.end) finishPass();
   } else if (pass?.kind === "video") {
     const t = ctl.time();
-    for (let i = 0; i < cols.length; i++) if (cols[i].t <= t + 0.02) idx = i;
-    if (listenOn) {
-      marks.hit = pass.hit;
-      updateMissed(t, stage().speed === "step" ? 0.5 : (stage().speed as number), pass.hit);
+    if (pass.landing && !hasLanded(t, pass.landing)) {
+      renderCol(-1);
+      return;
     }
+    pass.landing = null;
+    for (let i = 0; i < cols.length; i++) if (cols[i].t <= t + 0.02) idx = i;
     // the click: a beat passed since the last frame
     if (pass.ac && beat && t > pass.lastT && t - pass.lastT < 0.5) for (const b of beatsBetween(beat, pass.lastT + 1e-4, t)) scheduleClick(pass.ac, pass.ac.currentTime, isBar(b));
     pass.lastT = t;
@@ -421,9 +430,14 @@ function tick(): void {
       pass.heard = true;
       ctl.mute(false);
     }
-    if (t >= pass.stopAt) {
-      askStop(t, stage().speed === "step" ? 0.5 : (stage().speed as number), null);
-      finishPass();
+    if (t >= pass.stopAt && !pass.stopping) {
+      // the round is over once the video has really stopped (that's also
+      // when it learns how long this phone takes to stop)
+      const p = pass;
+      p.stopping = true;
+      askStop(t, stage().speed === "step" ? 0.5 : (stage().speed as number), () => {
+        if (pass === p) finishPass();
+      });
     }
   } else if (!running) idx = shownCol >= 0 ? shownCol : -1;
   else idx = -1;
@@ -526,46 +540,30 @@ function onMicFrame(frame: Float32Array, sampleRate: number, level: number): voi
   if (pass.kind === "echo") {
     const e = pass;
     const c = e.chunks[e.ci];
-    if (e.phase !== "you" || !c || now < e.youFrom) {
-      e.lastLevel = level;
-      return;
-    }
-    e.lastLevel = level;
+    if (e.phase !== "you" || !c || now < e.youFrom) return;
+    e.quietest = Math.min(e.quietest, level);
     if (level < 0.006) return;
+    // a new pluck: louder than it had sunk to since the last note heard
+    const plucked = level > Math.max(0.012, e.quietest * 1.5);
+    const prev = e.j > 0 ? cols[c.from + e.j - 1] : undefined;
     // the note it's waiting for, or the one after (if you skipped one)
     for (const k of [e.j, e.j + 1]) {
       const i = c.from + k;
       if (i > c.to) break;
       const col = cols[i];
-      const ok = col.notes.every((n) => n.tech === "mute") ? level > 0.02 : hears(frame, sampleRate, col.notes, currentCapo()).ok;
+      // the same note again needs a new pluck (or the one still ringing would count)
+      if (prev && e.hit.has(c.from + e.j - 1) && sameNotes(prev, col) && !plucked) continue;
+      const ok = col.notes.every((n) => n.tech === "mute") ? plucked && level > 0.02 : hears(frame, sampleRate, col.notes, currentCapo()).ok;
       if (ok) {
         if (k === e.j + 1) marks.missed.add(c.from + e.j);
         e.hit.add(i);
         e.j = k + 1;
         e.lastHitAt = now;
+        e.quietest = level;
         if (c.from + e.j > c.to) echoTurnOver(e);
         break;
       }
     }
-    return;
-  }
-  // a faster round: which notes did it hear, near their time?
-  if (level < 0.006) return;
-  let songT: number;
-  let rate: number;
-  if (pass.kind === "pluck") {
-    if (!pass.rate) return;
-    songT = pass.t0 + (pass.ac.currentTime - pass.base) * pass.rate;
-    rate = pass.rate;
-  } else {
-    songT = ctl?.time() ?? 0;
-    rate = stage().speed === "step" ? 0.5 : (stage().speed as number);
-  }
-  for (let i = 0; i < cols.length; i++) {
-    const c = cols[i];
-    const [a, b] = windowOf(c, rate);
-    if (pass.hit.has(i) || songT < a || songT > b) continue;
-    if (c.notes.every((n) => n.tech === "mute") ? level > 0.02 : hears(frame, sampleRate, c.notes, currentCapo()).ok) pass.hit.add(i);
   }
 }
 
@@ -575,12 +573,12 @@ function onMicFrame(frame: Float32Array, sampleRate: number, level: number): voi
  * stop is asked that much early on this phone, at any speed.
  */
 let stopLag = Math.min(1.5, Math.max(0.2, storage.get<number>("fretline:stop-lag", 0.6)));
-let stopWatch: { reqT: number; rate: number; lastT: number; still: number; done: (() => void) | null } | null = null;
+let stopWatch: { reqT: number; rate: number; lastT: number; stillSince: number; done: (() => void) | null } | null = null;
 
 function askStop(t: number, rate: number, then: (() => void) | null): void {
   ctl?.mute(true);
   ctl?.pause();
-  stopWatch = { reqT: t, rate, lastT: t, still: 0, done: then };
+  stopWatch = { reqT: t, rate, lastT: t, stillSince: performance.now(), done: then };
 }
 
 /** Each frame: has the player really stopped? Learn the delay when it has. */
@@ -594,13 +592,17 @@ function watchStop(): void {
     done?.();
     return;
   }
-  if (Math.abs(t - stopWatch.lastT) < 0.005) stopWatch.still++;
-  else stopWatch.still = 0;
+  const now = performance.now();
+  if (Math.abs(t - stopWatch.lastT) >= 0.005) stopWatch.stillSince = now;
   stopWatch.lastT = t;
-  if (stopWatch.still < 4) return;
+  // (its clock can also just be between two updates: give it a third of a second)
+  if (now - stopWatch.stillSince < 300) return;
   const lag = (t - stopWatch.reqT) / stopWatch.rate;
   if (lag >= 0 && lag < 2) {
-    stopLag = Math.min(1.5, Math.max(0.2, stopLag * 0.5 + (lag + 0.1) * 0.5));
+    // slower than thought: believe it at once (an extra note is the worse
+    // mistake); quicker: come down gently
+    const seen = lag + 0.1;
+    stopLag = Math.min(1.5, Math.max(0.2, seen > stopLag ? seen : stopLag * 0.7 + seen * 0.3));
     storage.set("fretline:stop-lag", stopLag);
   }
   const done = stopWatch.done;
@@ -608,13 +610,19 @@ function watchStop(): void {
   done?.();
 }
 
+/**
+ * When to ask the video to stop (song seconds) so that it has gone quiet
+ * just before the next note. It keeps sounding for `stopLag` after being
+ * asked, so the ask comes that much early: even before the last note of
+ * the part, as long as that note still gets to sound.
+ */
 function stopPoint(last: number, nextT: number | undefined, rate: number, first: number): number {
   if (nextT === undefined) return last + 0.5;
-  // never before the part has really started sounding
-  return Math.max(last + 0.08, first + 0.3 * rate, nextT - stopLag * rate);
+  const carry = Math.max(0, stopLag - 0.15) * rate;
+  return Math.max(last + 0.08 - carry, first + 0.3 * rate - carry, nextT - stopLag * rate);
 }
 
-/** The part in half bars (a whole bar when half a bar is too quick to hear). */
+/** The part in bits of half a bar (a bar or two when that's too quick to take in). */
 function chunksOf(rate: number): { from: number; to: number }[] {
   const out: { from: number; to: number }[] = [];
   if (beat) {
@@ -653,14 +661,80 @@ function nextChunk(): void {
   const c = e.chunks[e.ci];
   const first = cols[c.from].t;
   const last = cols[c.to].t;
+  e.phase = "play";
+  e.j = 0;
+  if (e.sound === "pluck" && e.ac) {
+    const ac = e.ac;
+    const base = ac.currentTime + 0.25;
+    const capo = currentCapo();
+    e.times = [];
+    for (let i = c.from; i <= c.to; i++) {
+      const at = base + (cols[i].t - first) / e.rate;
+      e.times.push(at);
+      scheduleColumn(ac, cols[i].notes, capo, at);
+    }
+    if (clickOn && beat) for (const b of beatsBetween(beat, first - 0.01, last + 0.01)) scheduleClick(ac, base + (b - first) / e.rate, isBar(b));
+    // the last note rings a moment, then it's quiet for your turn
+    e.playEnd = e.times[e.times.length - 1] + 0.9;
+    return;
+  }
   const nextT = cols[c.to + 1]?.t ?? after?.t;
   e.stopAt = stopPoint(last, nextT, e.rate, first);
   e.unmuted = false;
-  e.phase = "play";
-  e.j = 0;
   ctl.mute(true);
-  ctl.seek(Math.max(0, first - 0.6 * e.rate));
+  e.landing = jumpTo(Math.max(0, first - 0.6 * e.rate));
   ctl.play();
+}
+
+/** One frame of a play-then-you round; returns the note to show. */
+function tickEcho(e: Echo): number {
+  marks.hit = e.hit;
+  const c = e.chunks[e.ci];
+  let idx = -1;
+  if (!c || !ctl) return idx;
+  const yourTurn = () => {
+    e.phase = "you";
+    e.youFrom = performance.now() + 300;
+    e.lastHitAt = 0;
+    e.quietest = Infinity;
+  };
+  if (e.phase === "play" && e.sound === "pluck" && e.ac) {
+    const now = e.ac.currentTime;
+    idx = c.from;
+    e.times.forEach((at, k) => {
+      if (at <= now + 0.02) idx = c.from + k;
+    });
+    if (now >= e.playEnd) {
+      stopPluck();
+      yourTurn();
+    }
+  } else if (e.phase === "play") {
+    const t = ctl.time();
+    if (e.landing && !hasLanded(t, e.landing)) idx = c.from;
+    else {
+      e.landing = null;
+      idx = c.from;
+      for (let i = c.from; i <= c.to; i++) if (cols[i].t <= t + 0.02) idx = i;
+      if (!e.unmuted && t >= cols[c.from].t - 0.06) {
+        e.unmuted = true;
+        ctl.mute(false);
+      }
+      if (t >= e.stopAt) {
+        e.phase = "stopping";
+        // listen only once the video has really gone quiet
+        askStop(t, e.rate, () => {
+          if (pass === e) yourTurn();
+        });
+      }
+    }
+  } else if (e.phase === "you") {
+    idx = Math.min(c.to, c.from + e.j);
+    // patient before your first note, then it moves on if you've stopped
+    const now = performance.now();
+    if (e.lastHitAt ? now - e.lastHitAt > 3500 : now - e.youFrom > 6000) echoTurnOver(e);
+  } else idx = c.to;
+  renderEcho(e);
+  return idx;
 }
 
 function renderEcho(e: Echo): void {
@@ -668,8 +742,11 @@ function renderEcho(e: Echo): void {
   el.hidden = false;
   const c = e.chunks[e.ci];
   const n = c ? c.to - c.from + 1 : 0;
-  el.className = "pr-wait";
-  el.textContent = e.phase === "play" || e.phase === "stopping" ? `Listen… (part ${e.ci + 1} of ${e.chunks.length})` : e.phase === "you" ? `Your turn: play those ${n} notes` : "";
+  const left = c ? c.to - c.from + 1 - e.j : 0;
+  el.className = `pr-wait${e.phase === "next" ? " ok" : ""}`;
+  if (e.phase === "play" || e.phase === "stopping") el.textContent = `Listen… (bit ${e.ci + 1} of ${e.chunks.length})`;
+  else if (e.phase === "you") el.textContent = e.j === 0 ? `Your turn: play ${n === 1 ? "that note" : `those ${n} notes`}` : `Keep going: ${left} more`;
+  else el.textContent = c ? `${[...e.hit].filter((i) => i >= c.from && i <= c.to).length} of ${n} heard` : "";
 }
 
 function echoTurnOver(e: Echo): void {
@@ -678,21 +755,7 @@ function echoTurnOver(e: Echo): void {
   e.phase = "next";
   setTimeout(() => {
     if (pass === e) nextChunk();
-  }, 450);
-}
-
-/**
- * When a note counts as played (song seconds): a little early is fine, and
- * up to ~0.7 s late in real time (you hear the sound late through Bluetooth
- * buds, react, and the mic is a little behind too).
- */
-function windowOf(c: Col, rate: number): [number, number] {
-  return [c.t - 0.15 * rate, c.t + 0.7 * rate];
-}
-
-/** Notes whose time has passed without being heard. */
-function updateMissed(songT: number, rate: number, hit: Set<number>): void {
-  for (let i = 0; i < cols.length; i++) if (!hit.has(i) && songT > windowOf(cols[i], rate)[1]) marks.missed.add(i);
+  }, 700);
 }
 
 function skipWait(): void {

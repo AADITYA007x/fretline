@@ -568,7 +568,7 @@ export function initLessons(): void {
   initStrip();
   initNotebook(jump, () => current?.title || "Fretline tab");
   initPractice({
-    time: () => player?.time() ?? 0,
+    time: () => player?.smoothTime() ?? 0,
     play: () => player?.play(),
     pause: () => player?.pause(),
     seek: (sec) => player?.seek(sec),

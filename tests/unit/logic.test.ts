@@ -39,24 +39,62 @@ group("StringPicker", () => {
     expect(p.pick(e2, standard, 440)).toBe(0); // three in a row: switched
   });
 
-  it("high e dying away: A, low E and B ringing along don't take over", () => {
+  /** One mic frame: the level is always heard; a reading comes when there's a pitch. */
+  const player = () => {
     const p = new StringPicker();
-    let t = 0;
-    const step = (f: number, level: number) => p.pick(f, standard, 440, level, (t += 45));
-    expect(step(329.6, 0.002)).toBe(5);
-    expect(step(329.6, 0.08)).toBe(5); // the pluck
-    for (const [f, lv] of [[110, 0.03], [82.4, 0.025], [246.9, 0.02], [110, 0.015], [110, 0.012], [82.4, 0.01], [110, 0.009]] as const) {
-      t += 400;
-      expect(step(f, lv)).toBe(-1);
+    return (f: number | null, level: number) => {
+      p.hear(level);
+      return f === null ? null : p.pick(f, standard, 440, level);
+    };
+  };
+
+  it("high e dying away: A, low E and B ringing along don't take over", () => {
+    const frame = player();
+    frame(null, 0.002);
+    expect(frame(329.6, 0.08)).toBe(5); // the pluck
+    expect(frame(329.6, 0.07)).toBe(5);
+    expect(frame(329.6, 0.05)).toBe(5);
+    // the e fades; the hum of the other strings is what's left (much quieter than the pluck)
+    for (const [f, lv] of [[110, 0.03], [82.4, 0.025], [246.9, 0.02], [110, 0.015], [110, 0.012], [110, 0.011], [110, 0.01], [82.4, 0.009]] as const) {
+      expect(frame(f, lv)).toBe(-1);
     }
-    // plucking the A string: a new attack, so it switches straight away
-    t += 500;
-    step(110, 0.003);
-    expect(step(110, 0.09)).toBe(1);
-    // and then the D string (a different string, plucked)
-    t += 600;
-    step(146.8, 0.004);
-    expect(step(146.8, 0.1)).toBe(2);
+    // plucking the A string: three readings and it's A
+    frame(110, 0.09);
+    frame(110, 0.085);
+    expect(frame(110, 0.08)).toBe(1);
+  });
+
+  it("the next string plucked while the last still rings takes over (they're a fourth apart)", () => {
+    const frame = player();
+    frame(null, 0.002);
+    expect(frame(110, 0.1)).toBe(1); // A plucked
+    for (let i = 0; i < 12; i++) frame(110, 0.09 - i * 0.002); // ringing on
+    // D plucked over it, no louder than the A was (no jump in level to go
+    // by): but it's as loud as a pluck, so three readings and it's D
+    frame(146.8, 0.07);
+    frame(146.8, 0.07);
+    expect(frame(146.8, 0.068)).toBe(2);
+  });
+
+  it("a soft pluck of the next string after a loud one still takes over (the level jumps)", () => {
+    const frame = player();
+    frame(null, 0.002);
+    expect(frame(110, 0.3)).toBe(1); // A, loud
+    for (const lv of [0.2, 0.1, 0.05, 0.02, 0.01]) frame(110, lv); // dies away
+    // D, plucked softly: far below the A's pluck, but it starts with a jump
+    frame(146.8, 0.06);
+    frame(146.8, 0.055);
+    expect(frame(146.8, 0.05)).toBe(2);
+  });
+
+  it("after a short silence, the next string is taken in three readings", () => {
+    const frame = player();
+    expect(frame(108, 0.2)).toBe(1);
+    for (let i = 0; i < 4; i++) frame(108, 0.2);
+    for (let i = 0; i < 3; i++) frame(null, 0.0005); // too short for the readout to reset
+    frame(82.4, 0.2);
+    frame(82.4, 0.2);
+    expect(frame(82.4, 0.2)).toBe(0);
   });
 });
 
