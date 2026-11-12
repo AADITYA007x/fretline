@@ -736,3 +736,81 @@ test.describe("reading tab from the video", () => {
     expect(calls.filter((c) => c === "download").length).toBe(1);
   });
 });
+
+test.describe("a talk-through lesson (no tab on screen): steps", () => {
+  /** Captions where he names two phrases, each twice. */
+  const captions = () => {
+    const say = (t: number, text: string) => ({ tStartMs: t * 1000, dDurationMs: 2500, segs: text.split(" ").map((w, i) => ({ utf8: (i ? " " : "") + w, tOffsetMs: i * 300 })) });
+    const a = (t: number) => [say(t, "so here third string second fret with index"), say(t + 4, "and hammer on to the fourth fret"), say(t + 8, "now slide to seventh fret")];
+    const b = (t: number) => [say(t, "next second string third fret"), say(t + 4, "then first string second fret"), say(t + 8, "second string fifth fret"), say(t + 12, "and open fourth string")];
+    return JSON.stringify({ events: [...a(5), ...a(30), ...b(60), ...b(95)] });
+  };
+
+  test("My notes lists the steps he teaches, repeats folded; Practice plays a step evenly; Watch him", async ({ page }, info) => {
+    await fakeLessonInfo(page, captions());
+    await page.addInitScript(() => {
+      const w = window as any;
+      w.__plucks = 0;
+      const orig = AudioBufferSourceNode.prototype.start;
+      AudioBufferSourceNode.prototype.start = function (...a: any[]) {
+        w.__plucks++;
+        return orig.apply(this, a as any);
+      };
+    });
+    await page.goto("/");
+    await page.click('.tab[data-view="lessons"]');
+    await page.fill("#lesson-link", "ZeeuvgrDUeQ");
+    await page.click('#add-lesson-form button[type="submit"]');
+    await expect(page.locator("#caption-name")).toHaveText("Captions: English (auto-generated)");
+    await page.click('.lesson-tabs button[data-pane="notebook"]');
+    const steps = page.locator("#nb-lines .nb-line");
+    await expect(steps).toHaveCount(2);
+    await expect(page.locator("#nb-progress")).toHaveText("0 of 2 steps done");
+    await expect(page.locator("#nb-key")).toContainText("The steps he teaches");
+    // step 1: his words, its notes your way, and the other time he goes through it
+    await expect(steps.first().locator(".nb-words")).toContainText("third string second fret with index");
+    await expect(steps.first().locator(".nb-times")).toHaveText("taught 2×");
+    await expect(steps.first().locator(".nb-cell .nb-top")).toHaveText(["2·i", "4", "4→7"]);
+    await expect(steps.first().locator(".nb-cell.hammer")).toHaveCount(1);
+    await expect(steps.nth(1).locator(".nb-cell .nb-top")).toHaveText(["3", "2", "5", "0"]);
+    await expect(steps.first().locator(".nb-at")).toHaveText(["0:30"]);
+    await page.locator("#nb-lines").scrollIntoViewIfNeeded();
+    await page.mouse.wheel(0, 600);
+    await page.waitForTimeout(300);
+    await shot(page, "36-steps", info.project.name);
+    // "again at 0:30" plays that telling
+    await steps.first().locator(".nb-at").click();
+    await expect.poll(() => yt(page)).toBeGreaterThan(28);
+    await page.evaluate(() => (window as any).__yt.pauseVideo());
+
+    // Practice on a step: Fretline's pluck only, one note a beat
+    await page.click("#nb-practice");
+    await expect(page.locator("#practice")).toBeVisible();
+    await expect(page.locator("#pr-watch")).toBeVisible();
+    await expect(page.locator("#pr-sound-row")).toBeHidden();
+    await expect(page.locator("#pr-hint-talk")).toBeVisible();
+    await page.click('.pr-seg[data-opt="start"] button[data-v="0.5"]');
+    await expect(page.locator("#pr-stage")).toContainText("Fretline's pluck");
+    await page.click("#pr-play");
+    await expect(page.locator("#pr-now")).toHaveText("G 2", { timeout: 3000 });
+    // 80 beats a minute at 0.5×: a note every 1.5 s (he said them 4 s apart)
+    await expect(page.locator("#pr-now")).toHaveText("G 4", { timeout: 2500 });
+    await expect.poll(() => page.evaluate(() => (window as any).__plucks)).toBeGreaterThanOrEqual(3);
+    expect(await page.evaluate(() => (window as any).__yt.state)).not.toBe(1);
+    await shot(page, "37-step-practice", info.project.name);
+    // Watch him: back to the video, a little before he starts on it
+    await page.click("#pr-watch");
+    await expect(page.locator("#practice")).toBeHidden();
+    await expect.poll(() => page.evaluate(() => (window as any).__yt.state)).toBe(1);
+    const t = await yt(page);
+    expect(t).toBeGreaterThan(2.5);
+    expect(t).toBeLessThan(6);
+
+    // the practice list on the Lessons page knows its steps
+    await page.click("#lesson-back");
+    await expect(page.locator(".today-row .muted")).toContainText("step 1 of 2 · 0 done");
+    await page.click(".today-go");
+    await expect(page.locator("#practice")).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator("#pr-from")).toHaveValue("1");
+  });
+});

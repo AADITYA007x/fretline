@@ -5,7 +5,8 @@
 // 8–10 notes per line, each line numbered so you can tick off a few a day.
 import { escapeHtml } from "../utils";
 import { getProgress, setLineDone } from "../practice/progress";
-import type { TabNote } from "./tab";
+import { together, type TabNote } from "./tab";
+import { toSteps, type Step } from "./steps";
 
 export interface Cell {
   /** What goes on top (frets, "roll", …). */
@@ -30,6 +31,12 @@ export interface NoteLine {
   end: number;
   cells: Cell[];
   chords: string[];
+  /** A step of a talk-through lesson (see steps.ts): which one this line is from. */
+  step?: number;
+  /** His words while he teaches it (on the step's first line). */
+  words?: string;
+  /** Every stretch of the video where he goes through this step. */
+  tellings?: { start: number; end: number }[];
 }
 
 const TOGETHER = 0.03;
@@ -61,13 +68,8 @@ function slid(n: TabNote, before: number | undefined): string {
 /** One cell per moment: a single note, notes together, or a strummed chord. */
 export function toCells(notes: TabNote[], chords: { t: number; name: string }[] = []): Cell[] {
   const sorted = [...notes].sort((a, b) => a.t - b.t || a.string - b.string);
-  const groups: TabNote[][] = [];
-  for (const n of sorted) {
-    const g = groups[groups.length - 1];
-    // together = same moment, and never two notes on one string
-    if (g && n.t - g[0].t < TOGETHER && !g.some((o) => o.string === n.string)) g.push(n);
-    else groups.push([n]);
-  }
+  // together = same moment (or said "together"), and never two notes on one string
+  const groups = together(notes);
   const last = new Map<number, number>();
   let held = "";
   // a chord name's shape as played: on each string, the fret used most
@@ -168,6 +170,48 @@ export function notebookLines(notes: TabNote[], chords: { t: number; name: strin
   return toLines(toCells(notes, chords));
 }
 
+/**
+ * A talk-through lesson's steps as lines: one line a step (a long step is
+ * split evenly into lines of at most 10), numbered straight through.
+ */
+export function stepLines(steps: Step[]): NoteLine[] {
+  const lines: NoteLine[] = [];
+  for (const st of steps) {
+    const cells = toCells(st.notes);
+    const parts = Math.max(1, Math.ceil(cells.length / MAX));
+    const size = Math.ceil(cells.length / parts);
+    for (let k = 0; k < parts; k++) {
+      const part = cells.slice(k * size, (k + 1) * size);
+      if (!part.length) continue;
+      lines.push({
+        n: lines.length + 1,
+        t: part[0].t,
+        end: part[part.length - 1].t,
+        cells: part,
+        chords: [],
+        step: st.n,
+        words: k === 0 ? st.words : undefined,
+        tellings: st.tellings,
+      });
+    }
+  }
+  return lines;
+}
+
+/** What a lesson's My notes and Practice work from. */
+export interface LessonTab {
+  notes: TabNote[];
+  chords: { t: number; name: string }[];
+  /** No tab on screen: the notes are the ones he names, so it's steps. */
+  talk: boolean;
+  /** His words between two moments of the video. */
+  said?: (from: number, to: number) => string;
+}
+
+export function lessonLines(tab: LessonTab): NoteLine[] {
+  return tab.talk ? stepLines(toSteps(tab.notes, tab.said)) : notebookLines(tab.notes, tab.chords);
+}
+
 // --- Lines done (your progress), per lesson ------------------------------------
 
 export function doneLines(videoId: string): number[] {
@@ -194,6 +238,12 @@ export function cellHtml(c: Cell, extra = ""): string {
   return `${chord}<span class="${cls}"${shapeAttr}>${mark}<span class="nb-top">${escapeHtml(c.top)}</span><span class="nb-bottom">${escapeHtml(c.bottom) || "&nbsp;"}</span></span>`;
 }
 
+/** His words, cut to a line or two. */
+export function shorten(text: string, max = 150): string {
+  const t = text.replace(/\s+/g, " ").trim();
+  return t.length <= max ? t : `${t.slice(0, t.lastIndexOf(" ", max) > max * 0.6 ? t.lastIndexOf(" ", max) : max)}…`;
+}
+
 /** Plain text, to paste anywhere: "3. 0:41 [Am]  5/1  3→5/2  0+2/4+3 …" */
 export function toText(title: string, lines: NoteLine[]): string {
   const body = lines.map((l) => {
@@ -201,7 +251,7 @@ export function toText(title: string, lines: NoteLine[]): string {
       const core = c.bottom ? `${c.top}/${c.bottom}` : c.top;
       return `${c.chord ? `[${c.chord}] ` : ""}${c.mark && c.mark !== "hold" ? `${c.mark} ` : ""}${c.hammer ? `||${core}||` : core}`;
     });
-    return `${l.n}. ${clock(l.t)}  ${cells.join("  ")}`;
+    return `${l.n}. ${clock(l.t)}  ${cells.join("  ")}${l.words ? `\n   “${shorten(l.words, 200)}”` : ""}`;
   });
   return [title, "fret/string · + together · [frets / strings] hold · roll strum · → slide · ||n|| hammer-on · ✋ slap", "", ...body].join("\n");
 }
@@ -210,7 +260,8 @@ export function toText(title: string, lines: NoteLine[]): string {
 export function toPrintHtml(title: string, lines: NoteLine[], done: number[] = []): string {
   const rows = lines
     .map(
-      (l) => `<div class="line"><span class="no">${l.n}</span><span class="box">${done.includes(l.n) ? "✓" : ""}</span><span class="time">${clock(l.t)}</span><span class="cells">${l.cells.map((c) => cellHtml(c)).join("")}</span></div>`,
+      (l) =>
+        `<div class="line"><span class="no">${l.n}</span><span class="box">${done.includes(l.n) ? "✓" : ""}</span><span class="time">${clock(l.t)}</span><span class="cells">${l.cells.map((c) => cellHtml(c)).join("")}</span>${l.words ? `<span class="words">“${escapeHtml(shorten(l.words, 220))}”</span>` : ""}</div>`,
     )
     .join("");
   return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>
@@ -218,7 +269,7 @@ export function toPrintHtml(title: string, lines: NoteLine[], done: number[] = [
 body { font-family: "Segoe Print", "Comic Sans MS", "Bradley Hand", cursive, sans-serif; color: #1f2a44; margin: 0; }
 h1 { font-size: 18pt; margin: 0 0 2mm; }
 .key { font-family: sans-serif; font-size: 8.5pt; color: #555; margin-bottom: 5mm; }
-.line { display: flex; align-items: flex-end; gap: 3mm; border-bottom: 1px solid #9fb6d6; padding: 2.5mm 0 1.5mm; break-inside: avoid; }
+.line { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 3mm; border-bottom: 1px solid #9fb6d6; padding: 2.5mm 0 1.5mm; break-inside: avoid; }
 .no { width: 7mm; font-weight: bold; color: #b0413e; font-family: sans-serif; font-size: 10pt; }
 .box { width: 4mm; height: 4mm; border: 1px solid #777; font-size: 8pt; line-height: 4mm; text-align: center; }
 .time { width: 11mm; font-family: sans-serif; font-size: 8.5pt; color: #666; }
@@ -232,6 +283,7 @@ h1 { font-size: 18pt; margin: 0 0 2mm; }
 .hammer { border-left: 3px double #333; border-right: 3px double #333; padding: 0 1mm; }
 .hold .nb-bottom { border-top: 0; }
 .unsure .nb-top { text-decoration: underline dotted #c80; }
+.words { flex-basis: 100%; padding-left: 28mm; font-family: sans-serif; font-size: 8.5pt; color: #555; }
 </style></head><body><h1>${escapeHtml(title)}</h1>
 <div class="key">fret on top, string below &middot; + together &middot; [frets / strings] hold this shape &middot; roll = strum &middot; 5→7 slide &middot; ‖ ‖ hammer-on &middot; ✋ slap &middot; dotted = check this one</div>
 ${rows}</body></html>`;

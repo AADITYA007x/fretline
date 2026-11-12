@@ -1436,7 +1436,7 @@ html.in-lesson .topbar {
 .nb-line {
   display: grid;
   grid-template-columns: 30px 1fr;
-  grid-template-areas: "tick head" "tick cells";
+  grid-template-areas: "tick head" "tick words" "tick cells" "tick again";
   column-gap: 8px;
   padding: 8px 6px 10px;
   border-bottom: 1px solid var(--bone-faint);
@@ -2475,4 +2475,58 @@ html.in-practice body {
 
 .metro-go {
   min-width: 96px;
+}
+
+/* --- Steps of a talk-through lesson (My notes) ------------------------------------------------ */
+.nb-words {
+  grid-area: words;
+  margin: 4px 0 0;
+  color: var(--bone-dim);
+  font-size: 13px;
+  font-style: italic;
+  line-height: 1.4;
+}
+
+.nb-times {
+  color: var(--bone-dim);
+  font-size: 12px;
+}
+
+.nb-again {
+  grid-area: again;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  color: var(--bone-dim);
+  font-size: 12.5px;
+}
+
+.nb-at {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--bone-faint);
+  border-radius: 999px;
+  background: none;
+  color: var(--bone);
+  font: 600 12px var(--mono);
+}
+
+.pr-watch {
+  margin-top: 10px;
+}
+
+/* My notes header: the count on its own row, the buttons under it */
+#pane-notebook .pane-head {
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+
+#pane-notebook .pane-head .nb-actions {
+  margin-left: auto;
+}
+
+#nb-progress {
+  white-space: nowrap;
 }

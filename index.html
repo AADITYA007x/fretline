@@ -177,7 +177,7 @@
                 <button id="nb-print" class="row-action" type="button">Print / PDF</button>
               </span>
             </div>
-            <p class="nb-key muted">Fret on top, string below · + together · [frets / strings] hold · roll = strum · 5→7 slide · ‖ ‖ hammer-on · ✋ slap. Tap a line to play it, tick it when you've got it.</p>
+            <p id="nb-key" class="nb-key muted">Fret on top, string below · + together · [frets / strings] hold · roll = strum · 5→7 slide · ‖ ‖ hammer-on · ✋ slap. Tap a line to play it, tick it when you've got it.</p>
             <div id="nb-lines" class="nb-lines"></div>
           </div>
         </section>
@@ -199,6 +199,7 @@
             <select id="pr-to" aria-label="To line"></select>
             <button id="pr-next-line" class="ctl small" type="button" aria-label="Next line">▶</button>
           </div>
+          <button id="pr-watch" class="row-action pr-watch" type="button" hidden>▶ Watch him teach this step</button>
           <div id="pr-ladder" class="pr-ladder" aria-label="Steps"></div>
           <p id="pr-stage" class="pr-stage"></p>
           <div id="pr-note-card" class="pr-note">
@@ -223,7 +224,7 @@
             <div class="pr-opt"><span>Listen</span><div class="seg pr-seg" role="group" data-opt="listen"><button type="button" data-v="off">Off</button><button type="button" data-v="on">Listen to me</button></div></div>
             <div class="pr-opt"><span>1 by 1</span><div class="seg pr-seg" role="group" data-opt="gap"><button type="button" data-v="2">2 s</button><button type="button" data-v="3">3 s</button><button type="button" data-v="4">4 s</button></div></div>
             <div class="pr-opt"><span>At goal</span><div class="seg pr-seg" role="group" data-opt="after"><button type="button" data-v="repeat">Keep going</button><button type="button" data-v="next">Next line</button></div></div>
-            <div class="pr-opt"><span>Sound</span><div class="seg pr-seg" role="group" data-opt="sound"><button type="button" data-v="auto">Auto</button><button type="button" data-v="pluck">Pluck</button><button type="button" data-v="video">Video</button></div></div>
+            <div class="pr-opt" id="pr-sound-row"><span>Sound</span><div class="seg pr-seg" role="group" data-opt="sound"><button type="button" data-v="auto">Auto</button><button type="button" data-v="pluck">Pluck</button><button type="button" data-v="video">Video</button></div></div>
           </div>
           <div class="pr-metro">
             <button id="pr-click" class="row-action" type="button" aria-pressed="false">Click: off</button>
@@ -232,6 +233,7 @@
             <button id="pr-bpm-up" class="ctl small" type="button" aria-label="Faster beat">+</button>
             <button id="pr-tap" class="ctl small" type="button">Tap</button>
           </div>
+          <p id="pr-hint-talk" class="pr-hint muted" hidden>This lesson has no tab on screen, so the notes are the ones he names, and his words give no rhythm: a step is played evenly, one note a beat, at the tempo under Click (1× is that tempo). Watch him for how it really goes.</p>
           <p class="pr-hint muted">Below 0.5× you hear Fretline's own pluck (clear, one note at a time); from 0.5× the video's sound. Fingers are a suggestion: the video's tab doesn't say which. Listen to me: in 1 by 1 it plays a note and waits until it hears you play it; at every other speed it plays a bit (about half a bar), goes quiet, and you play it back. Notes turn green when heard; tap the note to skip one. No earphones needed.</p>
         </section>
 

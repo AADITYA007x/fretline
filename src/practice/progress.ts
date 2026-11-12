@@ -13,7 +13,7 @@ export function today(d = new Date()): string {
 
 export function getProgress(videoId: string): Progress {
   const p = getFixes(videoId).progress;
-  if (p && Array.isArray(p.done)) return { done: p.done, best: p.best ?? {}, days: p.days ?? {}, last: p.last };
+  if (p && Array.isArray(p.done)) return { done: p.done, best: p.best ?? {}, days: p.days ?? {}, last: p.last, total: p.total };
   // lines ticked before progress was kept with the lesson
   const old = storage.get<number[]>(OLD_DONE(videoId), []);
   return { done: Array.isArray(old) ? old.filter((x) => typeof x === "number") : [], best: {}, days: {} };

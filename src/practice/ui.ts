@@ -5,7 +5,8 @@
 import { bus } from "../state";
 import { pushStep, removeStep } from "../ui/back";
 import { $, storage } from "../utils";
-import { cellHtml, clock, doneLines, notebookLines, setDone, type NoteLine } from "../tabs/notebook";
+import { cellHtml, clock, doneLines, lessonLines, setDone, type NoteLine } from "../tabs/notebook";
+import { together } from "../tabs/tab";
 import { audio, scheduleClick, scheduleColumn, stopPluck } from "../tabs/pluck";
 import { STRING_NAMES, type TabNote } from "../tabs/tab";
 import { currentTab, currentCapo } from "../tabs/strip";
@@ -149,13 +150,20 @@ let shownCol = -2;
 
 /** Notes at one moment (never two on one string). */
 function toCols(notes: TabNote[]): Col[] {
-  const out: Col[] = [];
-  for (const n of [...notes].sort((a, b) => a.t - b.t)) {
-    const last = out[out.length - 1];
-    if (last && n.t - last.t < 0.03 && !last.notes.some((o) => o.string === n.string)) last.notes.push(n);
-    else out.push({ t: n.t, notes: [n] });
-  }
-  return out;
+  return together(notes).map((g) => ({ t: g[0].t, notes: g }));
+}
+
+/**
+ * A talk-through lesson: the notes are timed by when he *said* them, which
+ * is no rhythm at all. So a step is played evenly, one note a beat, at the
+ * tempo set under Click (1× = that tempo), and only with Fretline's pluck.
+ */
+let talk = false;
+const TALK_BPM = 80;
+
+/** When note i of the part sounds (seconds, at 1×). */
+function playAt(i: number): number {
+  return talk ? (i * 60) / (beat?.bpm ?? TALK_BPM) : cols[i].t;
 }
 
 function isOpen(): boolean {
@@ -180,7 +188,7 @@ function pickPart(): void {
 }
 
 function buildLadder(): void {
-  stages = ladder(opts);
+  stages = ladder(talk ? { ...opts, sound: "pluck" } : opts);
   stageIdx = Math.min(stageIdx, stages.length - 1);
   renderLadder();
 }
@@ -207,7 +215,7 @@ function renderOpts(): void {
 
 function loadBeat(): void {
   const saved = videoId ? storage.get<Beat | null>(BEAT_KEY(videoId), null) : null;
-  beat = saved && saved.bpm > 0 ? saved : estimateBeat(allCols.map((c) => c.t));
+  beat = saved && saved.bpm > 0 ? saved : talk ? { bpm: TALK_BPM, phase: 0 } : estimateBeat(allCols.map((c) => c.t));
   renderBeat();
 }
 
@@ -319,11 +327,13 @@ async function startPass(): Promise<void> {
     if (!running) return;
     const base = ac.currentTime + 0.3;
     const capo = currentCapo();
-    const times = cols.map((c, i) => base + (s.speed === "step" ? i * stepSeconds : (c.t - t0) / s.speed));
+    const times = cols.map((_, i) => base + (s.speed === "step" ? i * stepSeconds : (playAt(i) - playAt(0)) / s.speed));
     cols.forEach((c, i) => scheduleColumn(ac, c.notes, capo, times[i]));
     if (clickOn && beat && s.speed !== "step") {
       const r = s.speed;
-      for (const b of beatsBetween(beat, t0 - 0.01, t1 + 0.5)) scheduleClick(ac, base + (b - t0) / r, isBar(b));
+      // (a step has a note on every beat, so the click falls on each note)
+      if (talk) times.forEach((at, i) => scheduleClick(ac, at, i % 4 === 0));
+      else for (const b of beatsBetween(beat, t0 - 0.01, t1 + 0.5)) scheduleClick(ac, base + (b - t0) / r, isBar(b));
     }
     const end = times[times.length - 1] + (s.speed === "step" ? stepSeconds : 1.2);
     pass = { kind: "pluck", times, end, ac };
@@ -625,7 +635,7 @@ function stopPoint(last: number, nextT: number | undefined, rate: number, first:
 /** The part in bits of half a bar (a bar or two when that's too quick to take in). */
 function chunksOf(rate: number): { from: number; to: number }[] {
   const out: { from: number; to: number }[] = [];
-  if (beat) {
+  if (beat && !talk) {
     const period = 60 / beat.bpm;
     // half a bar, or more when that's too quick to take in (at least ~2 s)
     const beats = [2, 4, 8].find((b) => (b * period) / rate >= 2) ?? 8;
@@ -669,11 +679,12 @@ function nextChunk(): void {
     const capo = currentCapo();
     e.times = [];
     for (let i = c.from; i <= c.to; i++) {
-      const at = base + (cols[i].t - first) / e.rate;
+      const at = base + (playAt(i) - playAt(c.from)) / e.rate;
       e.times.push(at);
       scheduleColumn(ac, cols[i].notes, capo, at);
     }
-    if (clickOn && beat) for (const b of beatsBetween(beat, first - 0.01, last + 0.01)) scheduleClick(ac, base + (b - first) / e.rate, isBar(b));
+    if (clickOn && talk) e.times.forEach((at, k) => scheduleClick(ac, at, k % 4 === 0));
+    else if (clickOn && beat) for (const b of beatsBetween(beat, first - 0.01, last + 0.01)) scheduleClick(ac, base + (b - first) / e.rate, isBar(b));
     // the last note rings a moment, then it's quiet for your turn
     e.playEnd = e.times[e.times.length - 1] + 0.9;
     return;
@@ -836,8 +847,13 @@ function fillLines(fromLine: number): void {
 export function openPractice(title: string, at: { line?: number; t?: number } = {}): void {
   const tab = currentTab();
   videoId = tab.videoId;
-  lines = notebookLines(tab.notes, tab.chords);
+  lines = lessonLines(tab);
+  talk = tab.talk;
   allCols = toCols(tab.notes);
+  // steps play with Fretline's pluck only (the video there is him talking)
+  $("pr-sound-row").hidden = talk;
+  $("pr-watch").hidden = !talk;
+  $("pr-hint-talk").hidden = !talk;
   if (!lines.length) {
     bus.emit("toast", "No notes yet: read the tab from the video first");
     return;
@@ -885,6 +901,14 @@ export function initPractice(controls: PracticeControls): void {
   $("pr-close").addEventListener("click", () => closePractice());
   $("pr-play").addEventListener("click", () => (running ? stop() : start()));
   $("pr-up").addEventListener("click", () => move(1));
+  // a step: back to the video, where he teaches it
+  $("pr-watch").addEventListener("click", () => {
+    const line = lines[Number(($("pr-from") as HTMLSelectElement).value) - 1];
+    closePractice();
+    if (!line || !ctl) return;
+    ctl.seek(Math.max(0, line.t - 2));
+    ctl.play();
+  });
   // tap the note card to skip a note you can't get (while it listens)
   $("pr-note-card").addEventListener("click", skipWait);
   $("pr-line").addEventListener("click", (e) => {

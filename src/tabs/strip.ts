@@ -126,6 +126,7 @@ function glide(p: Phrase, t: number, upcoming: boolean): void {
 }
 
 let onChange: (() => void) | null = null;
+let said: ((from: number, to: number) => string) | undefined;
 
 /** Called whenever the lesson's notes change (read, fixed, loaded). */
 export function onTabChange(fn: () => void): void {
@@ -138,8 +139,15 @@ export function currentCapo(): number {
 }
 
 /** The lesson's notes as they are now (with your fixes), and chord names. */
-export function currentTab(): { videoId: string | null; notes: TabNote[]; chords: { t: number; name: string }[] } {
-  return { videoId, notes: phrases.flatMap((p) => p.columns.flatMap((c) => c.notes)), chords: fixes.screen?.chords ?? [] };
+export function currentTab(): { videoId: string | null; notes: TabNote[]; chords: { t: number; name: string }[]; talk: boolean; said?: (from: number, to: number) => string } {
+  return {
+    videoId,
+    notes: phrases.flatMap((p) => p.columns.flatMap((c) => c.notes)),
+    chords: fixes.screen?.chords ?? [],
+    // no tab read off the screen: the notes are the ones he names
+    talk: !fixes.screen?.notes.length,
+    said,
+  };
 }
 
 function rebuild(): void {
@@ -153,8 +161,10 @@ function rebuild(): void {
 }
 
 /** A lesson opened (or its captions arrived): its notes from his words. */
-export function setTab(id: string, notes: TabNote[], c: StripControls): void {
+/** `words(from, to)`: what he says between two moments (for the steps of a talk-through lesson). */
+export function setTab(id: string, notes: TabNote[], c: StripControls, words?: (from: number, to: number) => string): void {
   videoId = id;
+  said = words;
   speech = notes;
   fixes = getFixes(id);
   controls = c;

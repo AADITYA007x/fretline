@@ -40,6 +40,8 @@ export interface Progress {
   days: Record<string, number>;
   /** Where you were last. */
   last?: { line: number; at: number };
+  /** How many lines (or steps) the lesson has, as last seen. */
+  total?: number;
 }
 
 export interface ScreenTab {
@@ -95,6 +97,21 @@ export function applyFixes(base: TabNote[], fixes: Fixes): TabNote[] {
 export interface Column {
   t: number;
   notes: TabNote[];
+}
+
+/**
+ * Notes that sound together, in order: said "together" (they share a chord
+ * number) or read at the same moment, and never two on one string.
+ */
+export function together(notes: TabNote[]): TabNote[][] {
+  const groups: TabNote[][] = [];
+  for (const n of [...notes].sort((a, b) => a.t - b.t || a.string - b.string)) {
+    const g = groups[groups.length - 1];
+    const joins = g && !g.some((o) => o.string === n.string) && ((n.chord !== undefined && g.some((o) => o.chord === n.chord)) || n.t - g[0].t < 0.03);
+    if (joins) g.push(n);
+    else groups.push([n]);
+  }
+  return groups;
 }
 
 export interface Phrase {

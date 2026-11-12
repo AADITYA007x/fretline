@@ -24,7 +24,7 @@ import { applyFixes, fromSpoken } from "../tabs/tab";
 import { getFixes } from "../tabs/fixes";
 import { notebookLines } from "../tabs/notebook";
 import { allDays, getProgress, speedLabel, streak, today as todayKey } from "../practice/progress";
-import { clearTab, followAgain, initStrip, reloadFixes, render as renderStrip, renderPicture, setStepMode, setTab, stepCancelHold, stepMode, stepTick, type StripControls } from "../tabs/strip";
+import { clearTab, currentTab, followAgain, initStrip, reloadFixes, render as renderStrip, renderPicture, setStepMode, setTab, stepCancelHold, stepMode, stepTick, type StripControls } from "../tabs/strip";
 import { initScanUi, renderScanButton } from "../scan/ui";
 import { highlightNotebook, initNotebook, renderNotebook } from "../tabs/notebook-ui";
 import { closePractice, initPractice, openPractice } from "../practice/ui";
@@ -87,7 +87,13 @@ const stripControls: StripControls = {
 /** Notes from his words (or none yet) into the tab strip. */
 function updateTab(): void {
   if (!current) return;
-  setTab(current.videoId, fromSpoken(notesFromSpeech(lines.flatMap((l) => l.words))), stripControls);
+  const words = lines.flatMap((l) => l.words);
+  const said = (from: number, to: number) =>
+    words
+      .filter((w) => w.t >= from && w.t <= to)
+      .map((w) => w.w)
+      .join(" ");
+  setTab(current.videoId, fromSpoken(notesFromSpeech(words)), stripControls, said);
 }
 
 export function formatTime(sec: number): string {
@@ -114,34 +120,37 @@ function practiceAt(at: { line?: number; t?: number }): void {
 
 /** Pick up where you left off: each lesson with a tab, your next line and best speed. */
 function renderToday(): void {
-  const list = lessons().filter((l) => (getFixes(l.videoId).screen?.notes.length ?? 0) > 0);
-  $("today").hidden = !list.length;
-  if (!list.length) return;
+  // lessons with a tab read off the screen, and talk-through lessons whose
+  // steps have been seen (their count is kept with the progress)
+  const rows = lessons()
+    .map((l) => {
+      const fixes = getFixes(l.videoId);
+      const p = getProgress(l.videoId);
+      const screen = fixes.screen?.notes.length ? fixes.screen : null;
+      const total = screen ? notebookLines(applyFixes(screen.notes, fixes), screen.chords ?? []).length : (p.total ?? 0);
+      let next = 0;
+      for (let n = 1; n <= total && !next; n++) if (!p.done.includes(n)) next = n;
+      if (total && !next) next = 1;
+      return { l, p, total, next, steps: !screen, best: next ? p.best[next] : undefined, at: p.last?.at ?? 0 };
+    })
+    .filter((r) => r.total > 0)
+    .sort((a, b) => b.at - a.at || b.l.openedAt - a.l.openedAt);
+  $("today").hidden = !rows.length;
+  if (!rows.length) return;
   const days = allDays(lessons().map((l) => l.videoId));
   const mins = Math.round((days[todayKey()] ?? 0) / 60);
   const run = streak(days);
   $("today-stats").textContent = [run ? `${run} day${run === 1 ? "" : "s"} in a row` : "", `${mins} min today`].filter(Boolean).join(" · ");
-  const rows = list
-    .map((l) => {
-      const fixes = getFixes(l.videoId);
-      const notes = applyFixes(fixes.screen!.notes, fixes);
-      const nl = notebookLines(notes, fixes.screen?.chords ?? []);
-      const p = getProgress(l.videoId);
-      const next = nl.find((x) => !p.done.includes(x.n)) ?? nl[0];
-      const best = next ? p.best[next.n] : undefined;
-      return { l, nl, p, next, best, at: p.last?.at ?? 0 };
-    })
-    .filter((r) => r.next)
-    .sort((a, b) => b.at - a.at || b.l.openedAt - a.l.openedAt);
   const host = $("today-list");
   host.innerHTML = rows
-    .map(({ l, nl, p, next, best }) => {
-      const pct = nl.length ? Math.round((p.done.filter((n) => n <= nl.length).length / nl.length) * 100) : 0;
-      const detail = [`line ${next!.n} of ${nl.length}`, `${p.done.length} done`, best !== undefined ? `best here ${speedLabel(best)}` : ""].filter(Boolean).join(" · ");
+    .map(({ l, p, total, next, steps, best }) => {
+      const done = p.done.filter((n) => n <= total).length;
+      const pct = Math.round((done / total) * 100);
+      const detail = [`${steps ? "step" : "line"} ${next} of ${total}`, `${done} done`, best !== undefined ? `best here ${speedLabel(best)}` : ""].filter(Boolean).join(" · ");
       return `<div class="today-row">
   <div class="today-meta"><b>${escapeHtml(l.title)}</b><span class="muted">${escapeHtml(detail)}</span>
-    <span class="today-bar" aria-label="${pct}% of lines done"><span style="width:${pct}%"></span></span></div>
-  <button type="button" class="row-action today-go" data-id="${escapeHtml(l.videoId)}" data-line="${next!.n}">Practice</button>
+    <span class="today-bar" aria-label="${pct}% done"><span style="width:${pct}%"></span></span></div>
+  <button type="button" class="row-action today-go" data-id="${escapeHtml(l.videoId)}" data-line="${next}">Practice</button>
 </div>`;
     })
     .join("");
@@ -150,7 +159,14 @@ function renderToday(): void {
       const id = b.dataset.id!;
       const line = Number(b.dataset.line);
       void openLesson(id);
-      practiceAt({ line });
+      // a talk-through lesson's notes come with its captions: wait for them
+      const since = Date.now();
+      const go = () => {
+        if (current?.videoId !== id) return;
+        if (currentTab().notes.length || Date.now() - since > 8000) practiceAt({ line });
+        else setTimeout(go, 150);
+      };
+      go();
     }),
   );
 }
