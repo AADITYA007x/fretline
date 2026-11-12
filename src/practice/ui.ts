@@ -79,7 +79,7 @@ interface Echo {
   rate: number;
   chunks: { from: number; to: number }[];
   ci: number;
-  phase: "play" | "you" | "next";
+  phase: "play" | "stopping" | "you" | "next";
   stopAt: number;
   unmuted: boolean;
   /** Your turn: listening from, last progress, the note expected next. */
@@ -239,6 +239,7 @@ function setPlaying(on: boolean): void {
 }
 
 function clearPass(): void {
+  stopWatch = null;
   $("pr-wait").hidden = true;
   clearTimeout(gapTimer);
   gapTimer = undefined;
@@ -296,7 +297,7 @@ async function startPass(): Promise<void> {
     const from = Math.max(0, t0 - 0.6 * r);
     const last = cols[cols.length - 1].t;
     // the player takes ~half a second (real time) to go quiet, so ask early
-    const stopAt = after ? Math.max(last + 0.08, after.t - 0.6 * r) : last + 0.5;
+    const stopAt = stopPoint(last, after?.t, r, t0);
     ctl.seek(from);
     ctl.play();
     pass = { kind: "video", lastT: from, ac: clickOn ? await audio() : null, t0, stopAt, heard: false, hit: new Set() };
@@ -365,6 +366,7 @@ function finishPass(): void {
 function tick(): void {
   raf = requestAnimationFrame(tick);
   if (!isOpen() || !ctl) return;
+  watchStop();
   if (running && runSince && performance.now() - runSince > 60_000) flushTime();
   let idx = -1;
   if (pass?.kind === "wait") {
@@ -382,12 +384,14 @@ function tick(): void {
         ctl.mute(false);
       }
       if (t >= e.stopAt) {
-        ctl.mute(true);
-        ctl.pause();
-        e.phase = "you";
-        // let the video's sound die away before listening
-        e.youFrom = performance.now() + 350;
-        e.lastHitAt = 0;
+        e.phase = "stopping";
+        // listen only once the video has really gone quiet (and a moment more)
+        askStop(t, e.rate, () => {
+          if (pass !== e) return;
+          e.phase = "you";
+          e.youFrom = performance.now() + 250;
+          e.lastHitAt = 0;
+        });
       }
     } else if (e.phase === "you" && c) {
       idx = Math.min(c.to, c.from + e.j);
@@ -418,9 +422,7 @@ function tick(): void {
       ctl.mute(false);
     }
     if (t >= pass.stopAt) {
-      // (muting lands a moment sooner than pausing)
-      ctl.mute(true);
-      ctl.pause();
+      askStop(t, stage().speed === "step" ? 0.5 : (stage().speed as number), null);
       finishPass();
     }
   } else if (!running) idx = shownCol >= 0 ? shownCol : -1;
@@ -567,12 +569,58 @@ function onMicFrame(frame: Float32Array, sampleRate: number, level: number): voi
   }
 }
 
+/**
+ * How long (real seconds) the player keeps sounding after it's asked to
+ * stop. Measured each time it stops (when its clock stands still), so the
+ * stop is asked that much early on this phone, at any speed.
+ */
+let stopLag = Math.min(1.5, Math.max(0.2, storage.get<number>("fretline:stop-lag", 0.6)));
+let stopWatch: { reqT: number; rate: number; lastT: number; still: number; done: (() => void) | null } | null = null;
+
+function askStop(t: number, rate: number, then: (() => void) | null): void {
+  ctl?.mute(true);
+  ctl?.pause();
+  stopWatch = { reqT: t, rate, lastT: t, still: 0, done: then };
+}
+
+/** Each frame: has the player really stopped? Learn the delay when it has. */
+function watchStop(): void {
+  if (!stopWatch || !ctl) return;
+  const t = ctl.time();
+  if (t < stopWatch.reqT - 0.02) {
+    // moved on (a seek) before it settled: nothing to learn
+    const done = stopWatch.done;
+    stopWatch = null;
+    done?.();
+    return;
+  }
+  if (Math.abs(t - stopWatch.lastT) < 0.005) stopWatch.still++;
+  else stopWatch.still = 0;
+  stopWatch.lastT = t;
+  if (stopWatch.still < 4) return;
+  const lag = (t - stopWatch.reqT) / stopWatch.rate;
+  if (lag >= 0 && lag < 2) {
+    stopLag = Math.min(1.5, Math.max(0.2, stopLag * 0.5 + (lag + 0.1) * 0.5));
+    storage.set("fretline:stop-lag", stopLag);
+  }
+  const done = stopWatch.done;
+  stopWatch = null;
+  done?.();
+}
+
+function stopPoint(last: number, nextT: number | undefined, rate: number, first: number): number {
+  if (nextT === undefined) return last + 0.5;
+  // never before the part has really started sounding
+  return Math.max(last + 0.08, first + 0.3 * rate, nextT - stopLag * rate);
+}
+
 /** The part in half bars (a whole bar when half a bar is too quick to hear). */
 function chunksOf(rate: number): { from: number; to: number }[] {
   const out: { from: number; to: number }[] = [];
   if (beat) {
     const period = 60 / beat.bpm;
-    const beats = (2 * period) / rate < 1.2 ? 4 : 2;
+    // half a bar, or more when that's too quick to take in (at least ~2 s)
+    const beats = [2, 4, 8].find((b) => (b * period) / rate >= 2) ?? 8;
     const len = beats * period;
     let start = 0;
     let key = Math.floor((cols[0].t - beat.phase + 0.05) / len);
@@ -606,7 +654,7 @@ function nextChunk(): void {
   const first = cols[c.from].t;
   const last = cols[c.to].t;
   const nextT = cols[c.to + 1]?.t ?? after?.t;
-  e.stopAt = nextT !== undefined ? Math.max(last + 0.08, nextT - 0.6 * e.rate) : last + 0.5;
+  e.stopAt = stopPoint(last, nextT, e.rate, first);
   e.unmuted = false;
   e.phase = "play";
   e.j = 0;
@@ -621,7 +669,7 @@ function renderEcho(e: Echo): void {
   const c = e.chunks[e.ci];
   const n = c ? c.to - c.from + 1 : 0;
   el.className = "pr-wait";
-  el.textContent = e.phase === "play" ? `Listen… (part ${e.ci + 1} of ${e.chunks.length})` : e.phase === "you" ? `Your turn: play those ${n} notes` : "";
+  el.textContent = e.phase === "play" || e.phase === "stopping" ? `Listen… (part ${e.ci + 1} of ${e.chunks.length})` : e.phase === "you" ? `Your turn: play those ${n} notes` : "";
 }
 
 function echoTurnOver(e: Echo): void {

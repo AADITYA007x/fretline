@@ -38,6 +38,26 @@ group("StringPicker", () => {
     p.pick(e2, standard, 440);
     expect(p.pick(e2, standard, 440)).toBe(0); // three in a row: switched
   });
+
+  it("high e dying away: A, low E and B ringing along don't take over", () => {
+    const p = new StringPicker();
+    let t = 0;
+    const step = (f: number, level: number) => p.pick(f, standard, 440, level, (t += 45));
+    expect(step(329.6, 0.002)).toBe(5);
+    expect(step(329.6, 0.08)).toBe(5); // the pluck
+    for (const [f, lv] of [[110, 0.03], [82.4, 0.025], [246.9, 0.02], [110, 0.015], [110, 0.012], [82.4, 0.01], [110, 0.009]] as const) {
+      t += 400;
+      expect(step(f, lv)).toBe(-1);
+    }
+    // plucking the A string: a new attack, so it switches straight away
+    t += 500;
+    step(110, 0.003);
+    expect(step(110, 0.09)).toBe(1);
+    // and then the D string (a different string, plucked)
+    t += 600;
+    step(146.8, 0.004);
+    expect(step(146.8, 0.1)).toBe(2);
+  });
 });
 
 group("describe hysteresis", () => {

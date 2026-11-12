@@ -230,7 +230,9 @@ function onReading(r: engine.Reading | null): void {
     return;
   }
   const a4 = getA4();
-  const i = mode === "manual" ? picked : picker.pick(r.freq, tuning, a4);
+  const i = mode === "manual" ? picked : picker.pick(r.freq, tuning, a4, r.level, performance.now());
+  // another string just ringing along while yours dies away: keep showing yours
+  if (i < 0) return;
   const target = stringFreq(i);
   const cents = centsOff(r.freq, target);
   const tm = noteToMidi(tuning.strings[i]);
